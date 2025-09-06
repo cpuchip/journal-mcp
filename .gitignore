@@ -1,0 +1,30 @@
+# Build artifacts
+journal-mcp
+journal-mcp.exe
+*.exe
+
+# Go build cache
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test coverage
+coverage.out
+
+# Data directories (for development)
+.journal-mcp-dev/
+
+# Web UI build artifacts (when we add it)
+web/dist/
+web/node_modules/
