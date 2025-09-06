@@ -18,17 +18,17 @@ type JournalService struct {
 }
 
 type Task struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Type        string    `json:"type"` // work, learning, personal, investigation
-	Tags        []string  `json:"tags"`
-	Status      string    `json:"status"` // active, completed, paused, blocked
-	Priority    string    `json:"priority,omitempty"`
-	IssueURL    string    `json:"issue_url,omitempty"`
-	IssueID     string    `json:"issue_id,omitempty"`
-	Created     time.Time `json:"created"`
-	Updated     time.Time `json:"updated"`
-	Entries     []Entry   `json:"entries"`
+	ID       string    `json:"id"`
+	Title    string    `json:"title"`
+	Type     string    `json:"type"` // work, learning, personal, investigation
+	Tags     []string  `json:"tags"`
+	Status   string    `json:"status"` // active, completed, paused, blocked
+	Priority string    `json:"priority,omitempty"`
+	IssueURL string    `json:"issue_url,omitempty"`
+	IssueID  string    `json:"issue_id,omitempty"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	Entries  []Entry   `json:"entries"`
 }
 
 type Entry struct {
@@ -39,29 +39,29 @@ type Entry struct {
 }
 
 type OneOnOne struct {
-	Date     string   `json:"date"`
-	Insights []string `json:"insights,omitempty"`
-	Todos    []string `json:"todos,omitempty"`
-	Feedback []string `json:"feedback,omitempty"`
-	Notes    string   `json:"notes,omitempty"`
+	Date     string    `json:"date"`
+	Insights []string  `json:"insights,omitempty"`
+	Todos    []string  `json:"todos,omitempty"`
+	Feedback []string  `json:"feedback,omitempty"`
+	Notes    string    `json:"notes,omitempty"`
 	Created  time.Time `json:"created"`
 }
 
 type DailyActivity struct {
-	Date  string                 `json:"date"`
-	Tasks map[string][]Entry    `json:"tasks"` // task_id -> entries for that day
+	Date  string             `json:"date"`
+	Tasks map[string][]Entry `json:"tasks"` // task_id -> entries for that day
 }
 
 func NewJournalService() *JournalService {
 	homeDir, _ := os.UserHomeDir()
 	dataDir := filepath.Join(homeDir, ".journal-mcp")
-	
+
 	// Ensure directories exist
 	os.MkdirAll(filepath.Join(dataDir, "tasks"), 0755)
 	os.MkdirAll(filepath.Join(dataDir, "daily"), 0755)
 	os.MkdirAll(filepath.Join(dataDir, "weekly"), 0755)
 	os.MkdirAll(filepath.Join(dataDir, "one-on-ones"), 0755)
-	
+
 	return &JournalService{
 		dataDir: dataDir,
 	}
@@ -72,39 +72,39 @@ func (js *JournalService) CreateTask(ctx context.Context, request mcp.CallToolRe
 	if err != nil {
 		return mcp.NewToolResultError("id is required"), nil
 	}
-	
+
 	title, err := request.RequireString("title")
 	if err != nil {
 		return mcp.NewToolResultError("title is required"), nil
 	}
-	
+
 	taskType, err := request.RequireString("type")
 	if err != nil {
 		return mcp.NewToolResultError("type is required"), nil
 	}
-	
+
 	// Parse tags if provided
 	var tags []string
 	if tagsSlice := request.GetStringSlice("tags", nil); tagsSlice != nil {
 		tags = tagsSlice
 	}
-	
+
 	task := Task{
-		ID:       id,
-		Title:    title,
-		Type:     taskType,
-		Tags:     tags,
-		Status:   "active",
-		Created:  time.Now(),
-		Updated:  time.Now(),
-		Entries:  []Entry{},
+		ID:      id,
+		Title:   title,
+		Type:    taskType,
+		Tags:    tags,
+		Status:  "active",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Entries: []Entry{},
 	}
-	
+
 	// Handle optional fields
 	if priority := request.GetString("priority", ""); priority != "" {
 		task.Priority = priority
 	}
-	
+
 	if issueURL := request.GetString("issue_url", ""); issueURL != "" {
 		task.IssueURL = issueURL
 		// Extract issue ID from URL for easier referencing
@@ -124,7 +124,7 @@ func (js *JournalService) CreateTask(ctx context.Context, request mcp.CallToolRe
 			}
 		}
 	}
-	
+
 	// Add creation entry
 	task.Entries = append(task.Entries, Entry{
 		ID:        generateEntryID(),
@@ -132,7 +132,7 @@ func (js *JournalService) CreateTask(ctx context.Context, request mcp.CallToolRe
 		Content:   fmt.Sprintf("Task created: %s", title),
 		Type:      "creation",
 	})
-	
+
 	// Save task
 	if err := js.saveTask(&task); err != nil {
 		return &mcp.CallToolResult{
@@ -145,7 +145,7 @@ func (js *JournalService) CreateTask(ctx context.Context, request mcp.CallToolRe
 			IsError: true,
 		}, nil
 	}
-	
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.TextContent{
@@ -161,18 +161,18 @@ func (js *JournalService) AddTaskEntry(ctx context.Context, request mcp.CallTool
 	if err != nil {
 		return mcp.NewToolResultError("task_id is required"), nil
 	}
-	
+
 	content, err := request.RequireString("content")
 	if err != nil {
 		return mcp.NewToolResultError("content is required"), nil
 	}
-	
+
 	// Load existing task
 	task, err := js.loadTask(taskID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to load task: %v", err)), nil
 	}
-	
+
 	// Parse timestamp or use current time
 	timestamp := time.Now()
 	if timestampStr := request.GetString("timestamp", ""); timestampStr != "" {
@@ -180,7 +180,7 @@ func (js *JournalService) AddTaskEntry(ctx context.Context, request mcp.CallTool
 			timestamp = parsedTime
 		}
 	}
-	
+
 	// Add new entry
 	entry := Entry{
 		ID:        generateEntryID(),
@@ -188,18 +188,18 @@ func (js *JournalService) AddTaskEntry(ctx context.Context, request mcp.CallTool
 		Content:   content,
 		Type:      "log",
 	}
-	
+
 	task.Entries = append(task.Entries, entry)
 	task.Updated = time.Now()
-	
+
 	// Save updated task
 	if err := js.saveTask(task); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to save task: %v", err)), nil
 	}
-	
+
 	// Update daily log
 	js.updateDailyLog(taskID, entry)
-	
+
 	return mcp.NewToolResultText(fmt.Sprintf("Added entry to task %s at %s", taskID, timestamp.Format("15:04"))), nil
 }
 
@@ -208,23 +208,23 @@ func (js *JournalService) UpdateTaskEntry(ctx context.Context, request mcp.CallT
 	if err != nil {
 		return mcp.NewToolResultError("task_id is required"), nil
 	}
-	
+
 	entryID, err := request.RequireString("entry_id")
 	if err != nil {
 		return mcp.NewToolResultError("entry_id is required"), nil
 	}
-	
+
 	content, err := request.RequireString("content")
 	if err != nil {
 		return mcp.NewToolResultError("content is required"), nil
 	}
-	
+
 	// Load task
 	task, err := js.loadTask(taskID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to load task: %v", err)), nil
 	}
-	
+
 	// Find and update entry
 	found := false
 	for i, entry := range task.Entries {
@@ -235,16 +235,16 @@ func (js *JournalService) UpdateTaskEntry(ctx context.Context, request mcp.CallT
 			break
 		}
 	}
-	
+
 	if !found {
 		return mcp.NewToolResultError("Entry not found"), nil
 	}
-	
+
 	// Save updated task
 	if err := js.saveTask(task); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to save task: %v", err)), nil
 	}
-	
+
 	return mcp.NewToolResultText(fmt.Sprintf("Updated entry in task %s", taskID)), nil
 }
 
@@ -253,15 +253,15 @@ func (js *JournalService) GetTask(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError("task_id is required"), nil
 	}
-	
+
 	task, err := js.loadTask(taskID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to load task: %v", err)), nil
 	}
-	
+
 	// Format task as markdown for easy reading
 	markdown := js.formatTaskAsMarkdown(task)
-	
+
 	return mcp.NewToolResultText(markdown), nil
 }
 
@@ -270,19 +270,19 @@ func (js *JournalService) ListTasks(ctx context.Context, request mcp.CallToolReq
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to load tasks: %v", err)), nil
 	}
-	
+
 	// Apply filters (use request.GetArguments() to get raw map for filtering)
 	filtered := js.filterTasks(tasks, request.GetArguments())
-	
+
 	// Sort by updated time (most recent first)
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].Updated.After(filtered[j].Updated)
 	})
-	
+
 	// Format as list
 	var result strings.Builder
 	result.WriteString("# Task List\n\n")
-	
+
 	for _, task := range filtered {
 		result.WriteString(fmt.Sprintf("## %s: %s\n", task.ID, task.Title))
 		result.WriteString(fmt.Sprintf("**Type:** %s | **Status:** %s", task.Type, task.Status))
@@ -298,7 +298,7 @@ func (js *JournalService) ListTasks(ctx context.Context, request mcp.CallToolReq
 		}
 		result.WriteString(fmt.Sprintf("**Updated:** %s\n\n", task.Updated.Format("2006-01-02 15:04")))
 	}
-	
+
 	return mcp.NewToolResultText(result.String()), nil
 }
 
@@ -307,12 +307,12 @@ func (js *JournalService) UpdateTaskStatus(ctx context.Context, request mcp.Call
 	if err != nil {
 		return mcp.NewToolResultError("task_id is required"), nil
 	}
-	
+
 	status, err := request.RequireString("status")
 	if err != nil {
 		return mcp.NewToolResultError("status is required"), nil
 	}
-	
+
 	// Validate status
 	validStatuses := []string{"active", "completed", "paused", "blocked"}
 	isValid := false
@@ -325,40 +325,40 @@ func (js *JournalService) UpdateTaskStatus(ctx context.Context, request mcp.Call
 	if !isValid {
 		return mcp.NewToolResultError("Invalid status. Must be: active, completed, paused, blocked"), nil
 	}
-	
+
 	// Load task
 	task, err := js.loadTask(taskID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to load task: %v", err)), nil
 	}
-	
+
 	oldStatus := task.Status
 	task.Status = status
 	task.Updated = time.Now()
-	
+
 	// Add status change entry
 	content := fmt.Sprintf("Status changed from %s to %s", oldStatus, status)
 	if reason := request.GetString("reason", ""); reason != "" {
 		content += fmt.Sprintf(": %s", reason)
 	}
-	
+
 	entry := Entry{
 		ID:        generateEntryID(),
 		Timestamp: time.Now(),
 		Content:   content,
 		Type:      "status_change",
 	}
-	
+
 	task.Entries = append(task.Entries, entry)
-	
+
 	// Save task
 	if err := js.saveTask(task); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to save task: %v", err)), nil
 	}
-	
+
 	// Update daily log
 	js.updateDailyLog(taskID, entry)
-	
+
 	return mcp.NewToolResultText(fmt.Sprintf("Updated task %s status to %s", taskID, status)), nil
 }
 
@@ -403,12 +403,12 @@ func (js *JournalService) loadTask(taskID string) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var task Task
 	if err := json.Unmarshal(data, &task); err != nil {
 		return nil, err
 	}
-	
+
 	return &task, nil
 }
 
@@ -418,7 +418,7 @@ func (js *JournalService) loadAllTasks() ([]*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var tasks []*Task
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".json") {
@@ -428,26 +428,26 @@ func (js *JournalService) loadAllTasks() ([]*Task, error) {
 			}
 		}
 	}
-	
+
 	return tasks, nil
 }
 
 func (js *JournalService) filterTasks(tasks []*Task, filters map[string]interface{}) []*Task {
 	var filtered []*Task
-	
+
 	for _, task := range tasks {
 		include := true
-		
+
 		// Filter by status
 		if status, exists := filters["status"].(string); exists && task.Status != status {
 			include = false
 		}
-		
+
 		// Filter by type
 		if taskType, exists := filters["type"].(string); exists && task.Type != taskType {
 			include = false
 		}
-		
+
 		// Filter by tags
 		if tagsRaw, exists := filters["tags"].([]interface{}); exists {
 			hasTag := false
@@ -468,53 +468,53 @@ func (js *JournalService) filterTasks(tasks []*Task, filters map[string]interfac
 				include = false
 			}
 		}
-		
+
 		// TODO: Add date filtering
-		
+
 		if include {
 			filtered = append(filtered, task)
 		}
 	}
-	
+
 	return filtered
 }
 
 func (js *JournalService) formatTaskAsMarkdown(task *Task) string {
 	var md strings.Builder
-	
+
 	md.WriteString(fmt.Sprintf("# %s: %s\n", task.ID, task.Title))
 	md.WriteString(fmt.Sprintf("**Type:** %s | **Status:** %s", task.Type, task.Status))
 	if task.Priority != "" {
 		md.WriteString(fmt.Sprintf(" | **Priority:** %s", task.Priority))
 	}
 	md.WriteString("\n")
-	
+
 	if len(task.Tags) > 0 {
 		md.WriteString(fmt.Sprintf("**Tags:** %s\n", strings.Join(task.Tags, ", ")))
 	}
-	
+
 	if task.IssueURL != "" {
 		md.WriteString(fmt.Sprintf("**Issue:** [%s](%s)\n", task.IssueID, task.IssueURL))
 	}
-	
-	md.WriteString(fmt.Sprintf("**Created:** %s | **Updated:** %s\n\n", 
-		task.Created.Format("2006-01-02 15:04"), 
+
+	md.WriteString(fmt.Sprintf("**Created:** %s | **Updated:** %s\n\n",
+		task.Created.Format("2006-01-02 15:04"),
 		task.Updated.Format("2006-01-02 15:04")))
-	
+
 	// Group entries by date
 	entriesByDate := make(map[string][]Entry)
 	for _, entry := range task.Entries {
 		date := entry.Timestamp.Format("2006-01-02")
 		entriesByDate[date] = append(entriesByDate[date], entry)
 	}
-	
+
 	// Sort dates
 	var dates []string
 	for date := range entriesByDate {
 		dates = append(dates, date)
 	}
 	sort.Strings(dates)
-	
+
 	// Format entries by date
 	for _, date := range dates {
 		md.WriteString(fmt.Sprintf("## %s\n", date))
@@ -522,13 +522,13 @@ func (js *JournalService) formatTaskAsMarkdown(task *Task) string {
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].Timestamp.Before(entries[j].Timestamp)
 		})
-		
+
 		for _, entry := range entries {
 			md.WriteString(fmt.Sprintf("### %s\n", entry.Timestamp.Format("15:04")))
 			md.WriteString(fmt.Sprintf("%s\n\n", entry.Content))
 		}
 	}
-	
+
 	return md.String()
 }
 
