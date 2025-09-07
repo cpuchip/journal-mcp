@@ -114,7 +114,7 @@ The system now includes a comprehensive REST API that can run alongside or inste
 
 The API is designed to support modern frontend frameworks:
 
-**React/Vue.js Integration**
+**Vue.js Integration**
 - RESTful API design with consistent JSON responses
 - WebSocket support for real-time updates
 - CORS enabled for cross-origin requests

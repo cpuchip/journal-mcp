@@ -2,6 +2,7 @@
 journal-mcp
 journal-mcp.exe
 *.exe
+vendor/
 
 # Go build cache
 .cache/
