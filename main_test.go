@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -11,14 +12,14 @@ func TestToolRegistration(t *testing.T) {
 	// Create a test server
 	s := server.NewMCPServer("journal-mcp", "1.0.0", server.WithToolCapabilities(true))
 	js := NewJournalService()
-	
+
 	// Register tools
 	registerTools(s, js)
-	
+
 	// Expected tools
 	expectedTools := []string{
 		"create_task",
-		"add_task_entry", 
+		"add_task_entry",
 		"get_task",
 		"list_tasks",
 		"update_task_status",
@@ -29,8 +30,8 @@ func TestToolRegistration(t *testing.T) {
 		"search_entries",
 		"export_data",
 	}
-	
-	// Get registered tools through the MCP interface would require 
+
+	// Get registered tools through the MCP interface would require
 	// more complex setup, so we'll verify by counting and structure
 	if len(expectedTools) != 11 {
 		t.Errorf("Expected 11 tools to be defined, got %d", len(expectedTools))
@@ -111,7 +112,7 @@ func TestToolSchemas(t *testing.T) {
 			optionalArgs: []string{"date_from", "date_to", "task_filter"},
 		},
 	}
-	
+
 	// Verify tool schema definitions exist
 	// This is more of a structure test since we can't easily inspect
 	// the registered tools without more complex server introspection
@@ -124,7 +125,7 @@ func TestToolSchemas(t *testing.T) {
 			if tt.description == "" {
 				t.Error("Tool description cannot be empty")
 			}
-			
+
 			// Verify required and optional args are defined
 			if tt.name == "create_task" && len(tt.requiredArgs) != 3 {
 				t.Errorf("create_task should have 3 required args, got %d", len(tt.requiredArgs))
@@ -139,14 +140,14 @@ func TestToolSchemas(t *testing.T) {
 func TestMCPToolFunctionSignatures(t *testing.T) {
 	// Test that all tool functions have the correct MCP signature
 	js := NewJournalService()
-	
+
 	// Test that functions exist and can be called without panicking
 	toolNames := []string{
-		"CreateTask", "AddTaskEntry", "GetTask", "ListTasks", 
-		"UpdateTaskStatus", "GetDailyLog", "GetWeeklyLog", 
+		"CreateTask", "AddTaskEntry", "GetTask", "ListTasks",
+		"UpdateTaskStatus", "GetDailyLog", "GetWeeklyLog",
 		"CreateOneOnOne", "GetOneOnOneHistory", "SearchEntries", "ExportData",
 	}
-	
+
 	for _, name := range toolNames {
 		t.Run(name, func(t *testing.T) {
 			// Just verify the service has these methods
@@ -160,33 +161,33 @@ func TestMCPToolFunctionSignatures(t *testing.T) {
 
 func TestMCPCompliance(t *testing.T) {
 	// Test basic MCP compliance requirements
-	
+
 	// Test that we can create a valid MCP server
 	s := server.NewMCPServer("journal-mcp", "1.0.0", server.WithToolCapabilities(true))
 	if s == nil {
 		t.Fatal("Failed to create MCP server")
 	}
-	
+
 	// Test that we can create a journal service
 	js := NewJournalService()
 	if js == nil {
 		t.Fatal("Failed to create journal service")
 	}
-	
+
 	// Test that registration doesn't panic
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("Tool registration panicked: %v", r)
 		}
 	}()
-	
+
 	registerTools(s, js)
 }
 
 func TestMCPResultTypes(t *testing.T) {
 	// Test that all tools return proper MCP result types
 	js, _ := createTestJournalService(t)
-	
+
 	// Test successful result
 	successResult := mcp.NewToolResultText("Success message")
 	if successResult == nil {
@@ -195,7 +196,7 @@ func TestMCPResultTypes(t *testing.T) {
 	if successResult.IsError {
 		t.Error("Success result should not be marked as error")
 	}
-	
+
 	// Test error result
 	errorResult := mcp.NewToolResultError("Error message")
 	if errorResult == nil {
@@ -204,15 +205,15 @@ func TestMCPResultTypes(t *testing.T) {
 	if !errorResult.IsError {
 		t.Error("Error result should be marked as error")
 	}
-	
+
 	// Test that our functions return the right types
 	req := createMockRequest(map[string]interface{}{
 		"id":    "TYPE-TEST",
 		"title": "Type test task",
 		"type":  "work",
 	})
-	
-	result, err := js.CreateTask(nil, req)
+
+	result, err := js.CreateTask(context.Background(), req)
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestMCPResultTypes(t *testing.T) {
 	if len(result.Content) == 0 {
 		t.Error("CreateTask result should have content")
 	}
-	
+
 	// Verify content type
 	if _, ok := result.Content[0].(mcp.TextContent); !ok {
 		t.Error("CreateTask should return TextContent")
@@ -234,7 +235,7 @@ func TestMCPResultTypes(t *testing.T) {
 
 func TestRequestParameterParsing(t *testing.T) {
 	// Test the parameter parsing utilities used in our tool functions
-	
+
 	tests := []struct {
 		name     string
 		args     map[string]interface{}
@@ -288,7 +289,7 @@ func TestRequestParameterParsing(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := createMockRequest(tt.args)
