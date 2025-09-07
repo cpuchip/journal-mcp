@@ -2,8 +2,12 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -29,7 +33,92 @@ func NewService() *Service {
 
 // Stub implementations to test the structure - need to implement properly
 func (js *Service) CreateTask(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultText("CreateTask stub - needs implementation"), nil
+	id, err := request.RequireString("id")
+	if err != nil {
+		return mcp.NewToolResultError("id is required"), nil
+	}
+
+	title, err := request.RequireString("title")
+	if err != nil {
+		return mcp.NewToolResultError("title is required"), nil
+	}
+
+	taskType, err := request.RequireString("type")
+	if err != nil {
+		return mcp.NewToolResultError("type is required"), nil
+	}
+
+	// Parse tags if provided
+	var tags []string
+	if tagsSlice := request.GetStringSlice("tags", nil); tagsSlice != nil {
+		tags = tagsSlice
+	}
+
+	task := Task{
+		ID:      id,
+		Title:   title,
+		Type:    taskType,
+		Tags:    tags,
+		Status:  "active",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Entries: []Entry{},
+	}
+
+	// Handle optional fields
+	if priority := request.GetString("priority", ""); priority != "" {
+		task.Priority = priority
+	}
+
+	if issueURL := request.GetString("issue_url", ""); issueURL != "" {
+		task.IssueURL = issueURL
+		// Extract issue ID from URL for easier referencing
+		if strings.Contains(issueURL, "github.com") {
+			parts := strings.Split(issueURL, "/")
+			if len(parts) >= 2 {
+				task.IssueID = parts[len(parts)-1]
+			}
+		} else if strings.Contains(issueURL, "jira") || strings.Contains(issueURL, "atlassian") {
+			// Extract Jira ticket ID
+			parts := strings.Split(issueURL, "/")
+			for _, part := range parts {
+				if strings.Contains(part, "-") && len(part) > 3 {
+					task.IssueID = part
+					break
+				}
+			}
+		}
+	}
+
+	// Add creation entry
+	task.Entries = append(task.Entries, Entry{
+		ID:        generateEntryID(),
+		Timestamp: time.Now(),
+		Content:   fmt.Sprintf("Task created: %s", title),
+		Type:      "creation",
+	})
+
+	// Save task
+	if err := js.saveTask(&task); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to save task: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Created task %s: %s", id, title),
+			},
+		},
+	}, nil
 }
 
 func (js *Service) AddTaskEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -114,4 +203,33 @@ func (js *Service) UpdateConfiguration(ctx context.Context, request mcp.CallTool
 
 func (js *Service) MigrateData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("MigrateData stub - needs implementation"), nil
+}
+
+// Helper functions
+func generateEntryID() string {
+	return fmt.Sprintf("entry_%d", time.Now().UnixNano())
+}
+
+func (js *Service) saveTask(task *Task) error {
+	filePath := filepath.Join(js.dataDir, "tasks", task.ID+".json")
+	data, err := json.MarshalIndent(task, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func (js *Service) loadTask(taskID string) (*Task, error) {
+	filePath := filepath.Join(js.dataDir, "tasks", taskID+".json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var task Task
+	if err := json.Unmarshal(data, &task); err != nil {
+		return nil, err
+	}
+
+	return &task, nil
 }
