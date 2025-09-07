@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -126,7 +127,20 @@ func (js *Service) AddTaskEntry(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (js *Service) GetTask(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultText("GetTask stub - needs implementation"), nil
+	taskID, err := request.RequireString("task_id")
+	if err != nil {
+		return mcp.NewToolResultError("task_id is required"), nil
+	}
+
+	task, err := js.loadTask(taskID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to load task: %v", err)), nil
+	}
+
+	// Format task as markdown for easy reading
+	markdown := js.formatTaskAsMarkdown(task)
+
+	return mcp.NewToolResultText(markdown), nil
 }
 
 func (js *Service) ListTasks(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -232,4 +246,57 @@ func (js *Service) loadTask(taskID string) (*Task, error) {
 	}
 
 	return &task, nil
+}
+
+func (js *Service) formatTaskAsMarkdown(task *Task) string {
+	var md strings.Builder
+
+	md.WriteString(fmt.Sprintf("# %s: %s\n", task.ID, task.Title))
+	md.WriteString(fmt.Sprintf("**Type:** %s | **Status:** %s", task.Type, task.Status))
+	if task.Priority != "" {
+		md.WriteString(fmt.Sprintf(" | **Priority:** %s", task.Priority))
+	}
+	md.WriteString("\n")
+
+	if len(task.Tags) > 0 {
+		md.WriteString(fmt.Sprintf("**Tags:** %s\n", strings.Join(task.Tags, ", ")))
+	}
+
+	if task.IssueURL != "" {
+		md.WriteString(fmt.Sprintf("**Issue:** [%s](%s)\n", task.IssueID, task.IssueURL))
+	}
+
+	md.WriteString(fmt.Sprintf("**Created:** %s | **Updated:** %s\n\n",
+		task.Created.Format("2006-01-02 15:04"),
+		task.Updated.Format("2006-01-02 15:04")))
+
+	// Group entries by date
+	entriesByDate := make(map[string][]Entry)
+	for _, entry := range task.Entries {
+		date := entry.Timestamp.Format("2006-01-02")
+		entriesByDate[date] = append(entriesByDate[date], entry)
+	}
+
+	// Sort dates
+	var dates []string
+	for date := range entriesByDate {
+		dates = append(dates, date)
+	}
+	sort.Strings(dates)
+
+	// Format entries by date
+	for _, date := range dates {
+		md.WriteString(fmt.Sprintf("## %s\n", date))
+		entries := entriesByDate[date]
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Timestamp.Before(entries[j].Timestamp)
+		})
+
+		for _, entry := range entries {
+			md.WriteString(fmt.Sprintf("### %s\n", entry.Timestamp.Format("15:04")))
+			md.WriteString(fmt.Sprintf("%s\n\n", entry.Content))
+		}
+	}
+
+	return md.String()
 }

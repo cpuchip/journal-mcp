@@ -2,10 +2,13 @@ package web
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cpuchip/journal-mcp/internal/journal"
@@ -13,6 +16,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+//go:embed ../frontend/dist/*
+var frontendFiles embed.FS
 
 // WebServer provides REST API endpoints for the web interface
 type WebServer struct {
@@ -121,6 +127,58 @@ func (ws *WebServer) setupRoutes(router *mux.Router) {
 
 	// Health check
 	api.HandleFunc("/health", ws.handleHealth).Methods("GET")
+	
+	// Serve embedded frontend files
+	ws.setupStaticRoutes(router)
+}
+
+// setupStaticRoutes serves the embedded Vue.js frontend
+func (ws *WebServer) setupStaticRoutes(router *mux.Router) {
+	// Get embedded filesystem
+	frontendFS, err := fs.Sub(frontendFiles, "frontend/dist")
+	if err != nil {
+		log.Printf("Warning: Could not access embedded frontend files: %v", err)
+		return
+	}
+
+	// Create file server for static assets
+	fileServer := http.FileServer(http.FS(frontendFS))
+
+	// Handle static files (CSS, JS, images)
+	router.PathPrefix("/assets/").Handler(fileServer)
+	
+	// Handle all other routes (SPA routing)
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Don't serve frontend for API routes
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Try to serve the requested file
+		path := r.URL.Path
+		if path == "/" {
+			path = "/index.html"
+		}
+
+		// Check if file exists
+		if _, err := frontendFS.Open(strings.TrimPrefix(path, "/")); err != nil {
+			// File doesn't exist, serve index.html for SPA routing
+			path = "/index.html"
+		}
+
+		// Set appropriate content type
+		if strings.HasSuffix(path, ".html") {
+			w.Header().Set("Content-Type", "text/html")
+		} else if strings.HasSuffix(path, ".js") {
+			w.Header().Set("Content-Type", "application/javascript")
+		} else if strings.HasSuffix(path, ".css") {
+			w.Header().Set("Content-Type", "text/css")
+		}
+
+		// Serve the file
+		http.ServeFile(w, r, path)
+	})
 }
 
 // Task Handlers
