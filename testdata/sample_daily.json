@@ -1,0 +1,19 @@
+{
+  "date": "2025-01-01",
+  "tasks": {
+    "TEST-100": [
+      {
+        "id": "entry_1",
+        "timestamp": "2025-01-01T10:00:00Z",
+        "content": "Task created: Sample work task",
+        "type": "creation"
+      },
+      {
+        "id": "entry_2",
+        "timestamp": "2025-01-01T15:30:00Z",
+        "content": "Made good progress on API implementation",
+        "type": "log"
+      }
+    ]
+  }
+}

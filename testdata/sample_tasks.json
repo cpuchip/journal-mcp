@@ -1,0 +1,57 @@
+[
+  {
+    "id": "TEST-100",
+    "title": "Sample work task",
+    "type": "work",
+    "tags": ["backend", "api"],
+    "status": "active",
+    "priority": "high",
+    "issue_url": "https://github.com/test/repo/issues/100",
+    "issue_id": "100",
+    "created": "2025-01-01T10:00:00Z",
+    "updated": "2025-01-01T15:30:00Z",
+    "entries": [
+      {
+        "id": "entry_1",
+        "timestamp": "2025-01-01T10:00:00Z",
+        "content": "Task created: Sample work task",
+        "type": "creation"
+      },
+      {
+        "id": "entry_2",
+        "timestamp": "2025-01-01T15:30:00Z",
+        "content": "Made good progress on API implementation",
+        "type": "log"
+      }
+    ]
+  },
+  {
+    "id": "LEARN-200",
+    "title": "Learning GraphQL basics",
+    "type": "learning",
+    "tags": ["graphql", "frontend"],
+    "status": "completed",
+    "created": "2025-01-02T09:00:00Z",
+    "updated": "2025-01-02T17:00:00Z",
+    "entries": [
+      {
+        "id": "entry_3",
+        "timestamp": "2025-01-02T09:00:00Z",
+        "content": "Task created: Learning GraphQL basics",
+        "type": "creation"
+      },
+      {
+        "id": "entry_4",
+        "timestamp": "2025-01-02T14:00:00Z",
+        "content": "Completed tutorial on queries and mutations",
+        "type": "log"
+      },
+      {
+        "id": "entry_5",
+        "timestamp": "2025-01-02T17:00:00Z",
+        "content": "Status changed from active to completed",
+        "type": "status_change"
+      }
+    ]
+  }
+]
