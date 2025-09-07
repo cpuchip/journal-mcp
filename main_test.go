@@ -65,9 +65,9 @@ func TestToolSchemas(t *testing.T) {
 		},
 		{
 			name:         "list_tasks",
-			description:  "List tasks with optional filtering",
+			description:  "List tasks with optional filtering and pagination",
 			requiredArgs: []string{},
-			optionalArgs: []string{"status", "type"},
+			optionalArgs: []string{"status", "type", "date_from", "date_to", "limit", "offset"},
 		},
 		{
 			name:         "update_task_status",
