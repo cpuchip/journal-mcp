@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -17,10 +22,77 @@ func main() {
 	// Register tools
 	registerTools(s, journalService)
 
-	// Start the server
+	// Check if web server should be started
+	if len(os.Args) > 1 && os.Args[1] == "--web" {
+		startWebMode(journalService)
+		return
+	}
+
+	// Check for dual mode (both MCP and web)
+	if len(os.Args) > 1 && os.Args[1] == "--dual" {
+		startDualMode(s, journalService)
+		return
+	}
+
+	// Default: Start MCP server only
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func startWebMode(journalService *JournalService) {
+	webServer := NewWebServer(journalService, 8080)
+	
+	log.Println("Starting Journal MCP in web-only mode on port 8080")
+	log.Println("Access the API at: http://localhost:8080/api")
+	log.Println("API documentation at: http://localhost:8080/api/docs")
+	
+	if err := webServer.Start(); err != nil {
+		log.Fatal("Web server failed:", err)
+	}
+}
+
+func startDualMode(mcpServer *server.MCPServer, journalService *JournalService) {
+	// Start web server in a goroutine
+	webServer := NewWebServer(journalService, 8080)
+	go func() {
+		log.Println("Starting web server on port 8080")
+		if err := webServer.Start(); err != nil {
+			log.Printf("Web server error: %v", err)
+		}
+	}()
+
+	// Set up graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-c
+		log.Println("Shutting down servers...")
+		
+		// Shutdown web server
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		
+		if err := webServer.Stop(shutdownCtx); err != nil {
+			log.Printf("Web server shutdown error: %v", err)
+		}
+		
+		cancel()
+	}()
+
+	log.Println("Starting Journal MCP in dual mode (MCP + Web)")
+	log.Println("Web API available at: http://localhost:8080/api")
+	log.Println("MCP server running on stdio")
+
+	// Start MCP server
+	if err := server.ServeStdio(mcpServer); err != nil {
+		log.Printf("MCP server error: %v", err)
+	}
+
+	<-ctx.Done()
+	log.Println("Servers stopped")
 }
 
 func registerTools(s *server.MCPServer, js *JournalService) {
@@ -238,4 +310,109 @@ func registerTools(s *server.MCPServer, js *JournalService) {
 			mcp.Description("Filter by task type: work, learning, personal, investigation"),
 		),
 	), js.GetAnalyticsReport)
+
+	// GitHub Integration Tools
+	s.AddTool(mcp.NewTool("sync_with_github",
+		mcp.WithDescription("Sync assigned GitHub issues with tasks"),
+		mcp.WithString("github_token",
+			mcp.Required(),
+			mcp.Description("GitHub personal access token"),
+		),
+		mcp.WithString("username",
+			mcp.Required(),
+			mcp.Description("GitHub username to sync issues for"),
+		),
+		mcp.WithArray("repositories",
+			mcp.Description("Optional list of repositories to sync (format: owner/repo). If empty, syncs all assigned issues."),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("create_tasks",
+			mcp.Description("Whether to create new tasks for new issues (true/false, default: true)"),
+		),
+		mcp.WithString("update_existing",
+			mcp.Description("Whether to update existing tasks with issue changes (true/false, default: true)"),
+		),
+	), js.SyncWithGitHub)
+
+	s.AddTool(mcp.NewTool("pull_issue_updates",
+		mcp.WithDescription("Pull latest comments and events for tracked GitHub issues"),
+		mcp.WithString("github_token",
+			mcp.Required(),
+			mcp.Description("GitHub personal access token"),
+		),
+		mcp.WithString("task_id",
+			mcp.Description("Specific task ID to update (if empty, updates all tasks with GitHub issues)"),
+		),
+		mcp.WithString("since",
+			mcp.Description("Only pull updates since this timestamp (ISO 8601 format: 2006-01-02T15:04:05Z)"),
+		),
+	), js.PullIssueUpdates)
+
+	s.AddTool(mcp.NewTool("create_task_from_github_issue",
+		mcp.WithDescription("Create a new task from a GitHub issue URL"),
+		mcp.WithString("github_token",
+			mcp.Required(),
+			mcp.Description("GitHub personal access token"),
+		),
+		mcp.WithString("issue_url",
+			mcp.Required(),
+			mcp.Description("Full GitHub issue URL (e.g., https://github.com/owner/repo/issues/123)"),
+		),
+		mcp.WithString("type",
+			mcp.Description("Task type: work, learning, personal, investigation (default: work)"),
+		),
+		mcp.WithString("priority",
+			mcp.Description("Task priority: low, medium, high, urgent (default: medium)"),
+		),
+	), js.CreateTaskFromGitHubIssue)
+
+	// Data Management Tools
+	s.AddTool(mcp.NewTool("create_data_backup",
+		mcp.WithDescription("Create a backup of all journal data"),
+		mcp.WithString("backup_path",
+			mcp.Description("Path for the backup file (defaults to timestamped file in data directory)"),
+		),
+		mcp.WithString("include_config",
+			mcp.Description("Whether to include configuration in backup (true/false, default: true)"),
+		),
+		mcp.WithString("compression",
+			mcp.Description("Compression level: none, default, maximum (default: default)"),
+		),
+	), js.CreateDataBackup)
+
+	s.AddTool(mcp.NewTool("restore_data_backup",
+		mcp.WithDescription("Restore journal data from a backup file"),
+		mcp.WithString("backup_path",
+			mcp.Required(),
+			mcp.Description("Path to the backup ZIP file"),
+		),
+		mcp.WithString("overwrite_existing",
+			mcp.Description("Whether to overwrite existing data (true/false, default: false)"),
+		),
+		mcp.WithString("restore_config",
+			mcp.Description("Whether to restore configuration (true/false, default: true)"),
+		),
+	), js.RestoreDataBackup)
+
+	s.AddTool(mcp.NewTool("get_configuration",
+		mcp.WithDescription("Get the current journal configuration"),
+	), js.GetConfiguration)
+
+	s.AddTool(mcp.NewTool("update_configuration",
+		mcp.WithDescription("Update the journal configuration"),
+		mcp.WithString("config",
+			mcp.Required(),
+			mcp.Description("Configuration JSON data"),
+		),
+	), js.UpdateConfiguration)
+
+	s.AddTool(mcp.NewTool("migrate_data",
+		mcp.WithDescription("Perform data migration (future SQLite integration preparation)"),
+		mcp.WithString("target_version",
+			mcp.Description("Target migration version (default: current)"),
+		),
+		mcp.WithString("dry_run",
+			mcp.Description("Perform a dry run without making changes (true/false, default: false)"),
+		),
+	), js.MigrateData)
 }

@@ -1265,6 +1265,11 @@ func (js *JournalService) loadAllTasks() ([]*Task, error) {
 	return tasks, nil
 }
 
+// getAllTasks is an alias for loadAllTasks for consistency
+func (js *JournalService) getAllTasks() ([]*Task, error) {
+	return js.loadAllTasks()
+}
+
 func (js *JournalService) filterTasks(tasks []*Task, filters map[string]interface{}) []*Task {
 	var filtered []*Task
 
