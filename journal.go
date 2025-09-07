@@ -56,6 +56,66 @@ type ImportResult struct {
 	Summary          string   `json:"summary"`
 }
 
+type TaskRecommendation struct {
+	Type        string  `json:"type"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Rationale   string  `json:"rationale"`
+	Priority    string  `json:"priority"`
+	Confidence  float64 `json:"confidence"`
+	SuggestedTags []string `json:"suggested_tags,omitempty"`
+}
+
+type RecommendationsResult struct {
+	Recommendations []TaskRecommendation `json:"recommendations"`
+	AnalysisMetrics map[string]interface{} `json:"analysis_metrics"`
+	Summary         string                 `json:"summary"`
+}
+
+type AnalyticsReport struct {
+	ReportType      string                 `json:"report_type"`
+	TimePeriod      string                 `json:"time_period"`
+	GeneratedAt     time.Time              `json:"generated_at"`
+	Summary         string                 `json:"summary"`
+	TaskMetrics     TaskMetrics            `json:"task_metrics"`
+	ProductivityMetrics ProductivityMetrics `json:"productivity_metrics"`
+	PatternAnalysis PatternAnalysis        `json:"pattern_analysis"`
+	Trends          []Trend                `json:"trends,omitempty"`
+	Insights        []string               `json:"insights"`
+}
+
+type TaskMetrics struct {
+	TotalTasks       int                 `json:"total_tasks"`
+	ByStatus         map[string]int      `json:"by_status"`
+	ByType           map[string]int      `json:"by_type"`
+	ByPriority       map[string]int      `json:"by_priority"`
+	CompletionRate   float64             `json:"completion_rate"`
+	AverageEntries   float64             `json:"average_entries_per_task"`
+	TotalEntries     int                 `json:"total_entries"`
+}
+
+type ProductivityMetrics struct {
+	TasksCompletedPeriod  int     `json:"tasks_completed_period"`
+	EntriesAddedPeriod    int     `json:"entries_added_period"`
+	AverageTaskDuration   float64 `json:"average_task_duration_days"`
+	MostProductiveType    string  `json:"most_productive_type"`
+	ProductivityScore     float64 `json:"productivity_score"`
+}
+
+type PatternAnalysis struct {
+	MostFrequentType      string                `json:"most_frequent_type"`
+	CommonTags            []string              `json:"common_tags"`
+	WorkPatterns          map[string]int        `json:"work_patterns"`
+	TimeToCompletion      map[string]float64    `json:"time_to_completion_by_type"`
+}
+
+type Trend struct {
+	Metric    string  `json:"metric"`
+	Direction string  `json:"direction"` // "up", "down", "stable"
+	Change    float64 `json:"change"`
+	Period    string  `json:"period"`
+}
+
 type DailyActivity struct {
 	Date  string             `json:"date"`
 	Tasks map[string][]Entry `json:"tasks"` // task_id -> entries for that day
@@ -1089,6 +1149,77 @@ func (js *JournalService) ImportData(ctx context.Context, request mcp.CallToolRe
 	return mcp.NewToolResultText(string(resultJSON)), nil
 }
 
+func (js *JournalService) GetTaskRecommendations(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	taskType := request.GetString("task_type", "")
+	focusArea := request.GetString("focus_area", "productivity")
+	limitStr := request.GetString("limit", "5")
+	
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 20 {
+		limit = 5
+	}
+	
+	// Validate focus area
+	validFocus := map[string]bool{"productivity": true, "learning": true, "completion": true, "priority": true}
+	if !validFocus[focusArea] {
+		return mcp.NewToolResultError("focus_area must be one of: productivity, learning, completion, priority"), nil
+	}
+	
+	// Load all tasks for analysis
+	tasks, err := js.loadAllTasks()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to load tasks: %v", err)), nil
+	}
+	
+	// Analyze patterns and generate recommendations
+	recommendations := js.analyzeAndRecommend(tasks, taskType, focusArea, limit)
+	
+	result := RecommendationsResult{
+		Recommendations: recommendations,
+		AnalysisMetrics: js.calculateAnalysisMetrics(tasks),
+		Summary:         fmt.Sprintf("Generated %d recommendations based on %s analysis of %d tasks", 
+			len(recommendations), focusArea, len(tasks)),
+	}
+	
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+func (js *JournalService) GetAnalyticsReport(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reportType := request.GetString("report_type", "overview")
+	timePeriod := request.GetString("time_period", "month")
+	taskType := request.GetString("task_type", "")
+	
+	// Validate parameters
+	validReportTypes := map[string]bool{"overview": true, "productivity": true, "patterns": true, "trends": true}
+	if !validReportTypes[reportType] {
+		return mcp.NewToolResultError("report_type must be one of: overview, productivity, patterns, trends"), nil
+	}
+	
+	validTimePeriods := map[string]bool{"week": true, "month": true, "quarter": true, "year": true, "all": true}
+	if !validTimePeriods[timePeriod] {
+		return mcp.NewToolResultError("time_period must be one of: week, month, quarter, year, all"), nil
+	}
+	
+	// Load all tasks for analysis
+	allTasks, err := js.loadAllTasks()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to load tasks: %v", err)), nil
+	}
+	
+	// Filter tasks by time period and type
+	filteredTasks := js.filterTasksByTimePeriod(allTasks, timePeriod)
+	if taskType != "" {
+		filteredTasks = js.getTasksByType(filteredTasks, taskType)
+	}
+	
+	// Generate analytics report
+	report := js.generateAnalyticsReport(filteredTasks, reportType, timePeriod)
+	
+	resultJSON, _ := json.MarshalIndent(report, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
 // Helper methods
 func (js *JournalService) saveTask(task *Task) error {
 	filePath := filepath.Join(js.dataDir, "tasks", task.ID+".json")
@@ -1784,4 +1915,748 @@ func (js *JournalService) parseCSVLine(line string) []string {
 	
 	fields = append(fields, current.String())
 	return fields
+}
+
+// AI-assisted recommendation analysis
+func (js *JournalService) analyzeAndRecommend(tasks []*Task, taskType, focusArea string, limit int) []TaskRecommendation {
+	var recommendations []TaskRecommendation
+	
+	// Filter tasks by type if specified
+	var filteredTasks []*Task
+	for _, task := range tasks {
+		if taskType == "" || task.Type == taskType {
+			filteredTasks = append(filteredTasks, task)
+		}
+	}
+	
+	switch focusArea {
+	case "productivity":
+		recommendations = js.generateProductivityRecommendations(filteredTasks, limit)
+	case "learning":
+		recommendations = js.generateLearningRecommendations(filteredTasks, limit)
+	case "completion":
+		recommendations = js.generateCompletionRecommendations(filteredTasks, limit)
+	case "priority":
+		recommendations = js.generatePriorityRecommendations(filteredTasks, limit)
+	}
+	
+	return recommendations
+}
+
+func (js *JournalService) generateProductivityRecommendations(tasks []*Task, limit int) []TaskRecommendation {
+	var recommendations []TaskRecommendation
+	
+	// Analyze task patterns
+	activeTasks := js.getActiveTasks(tasks)
+	staleTasks := js.getStaleTasks(tasks)
+	frequentTypes := js.getFrequentTaskTypes(tasks)
+	
+	// Recommend breaking down large tasks
+	for _, task := range activeTasks {
+		if len(task.Entries) > 10 {
+			recommendations = append(recommendations, TaskRecommendation{
+				Type:        "task_breakdown",
+				Title:       fmt.Sprintf("Break down '%s' into smaller tasks", task.Title),
+				Description: "This task has many entries and might benefit from being split into smaller, more manageable tasks",
+				Rationale:   fmt.Sprintf("Task has %d entries, suggesting it's complex and could be decomposed", len(task.Entries)),
+				Priority:    "medium",
+				Confidence:  0.7,
+				SuggestedTags: []string{"breakdown", "organization"},
+			})
+			if len(recommendations) >= limit {
+				break
+			}
+		}
+	}
+	
+	// Recommend reviewing stale tasks
+	for _, task := range staleTasks {
+		if len(recommendations) >= limit {
+			break
+		}
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "task_review",
+			Title:       fmt.Sprintf("Review stale task: '%s'", task.Title),
+			Description: "This task hasn't been updated recently and may need attention or status change",
+			Rationale:   fmt.Sprintf("Last updated %s", task.Updated.Format("2006-01-02")),
+			Priority:    "low",
+			Confidence:  0.6,
+			SuggestedTags: []string{"review", "stale"},
+		})
+	}
+	
+	// Recommend creating tasks for frequent types
+	if len(recommendations) < limit && len(frequentTypes) > 0 {
+		for taskType, count := range frequentTypes {
+			if len(recommendations) >= limit {
+				break
+			}
+			if count >= 3 {
+				recommendations = append(recommendations, TaskRecommendation{
+					Type:        "new_task",
+					Title:       fmt.Sprintf("Consider creating another %s task", taskType),
+					Description: fmt.Sprintf("You've been productive with %s tasks recently", taskType),
+					Rationale:   fmt.Sprintf("You have %d active %s tasks showing this is an area of focus", count, taskType),
+					Priority:    "medium",
+					Confidence:  0.5,
+					SuggestedTags: []string{taskType, "suggested"},
+				})
+			}
+		}
+	}
+	
+	return recommendations
+}
+
+func (js *JournalService) generateLearningRecommendations(tasks []*Task, limit int) []TaskRecommendation {
+	var recommendations []TaskRecommendation
+	
+	learningTasks := js.getTasksByType(tasks, "learning")
+	completedLearning := js.getCompletedTasks(learningTasks)
+	activeLearning := js.getActiveTasks(learningTasks)
+	
+	// Recommend review of completed learning
+	for _, task := range completedLearning {
+		if len(recommendations) >= limit {
+			break
+		}
+		if time.Since(task.Updated) > 30*24*time.Hour { // 30 days
+			recommendations = append(recommendations, TaskRecommendation{
+				Type:        "learning_review",
+				Title:       fmt.Sprintf("Review learning: '%s'", task.Title),
+				Description: "Revisiting completed learning can help reinforce knowledge",
+				Rationale:   fmt.Sprintf("Completed %s, may benefit from review", task.Updated.Format("2006-01-02")),
+				Priority:    "low",
+				Confidence:  0.6,
+				SuggestedTags: []string{"review", "learning", "reinforcement"},
+			})
+		}
+	}
+	
+	// Recommend practice tasks for active learning
+	for _, task := range activeLearning {
+		if len(recommendations) >= limit {
+			break
+		}
+		if len(task.Entries) >= 5 {
+			recommendations = append(recommendations, TaskRecommendation{
+				Type:        "practice_task",
+				Title:       fmt.Sprintf("Create practice task for '%s'", task.Title),
+				Description: "Apply what you've learned with a practical exercise",
+				Rationale:   fmt.Sprintf("Learning task has %d entries, ready for practical application", len(task.Entries)),
+				Priority:    "high",
+				Confidence:  0.8,
+				SuggestedTags: []string{"practice", "application", "learning"},
+			})
+		}
+	}
+	
+	// Recommend new learning areas
+	if len(recommendations) < limit {
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "new_learning",
+			Title:       "Explore a new learning area",
+			Description: "Consider starting a new learning project to expand your skills",
+			Rationale:   fmt.Sprintf("You have %d learning tasks, showing commitment to growth", len(learningTasks)),
+			Priority:    "medium",
+			Confidence:  0.4,
+			SuggestedTags: []string{"new", "learning", "growth"},
+		})
+	}
+	
+	return recommendations
+}
+
+func (js *JournalService) generateCompletionRecommendations(tasks []*Task, limit int) []TaskRecommendation {
+	var recommendations []TaskRecommendation
+	
+	activeTasks := js.getActiveTasks(tasks)
+	nearCompletionTasks := js.getNearCompletionTasks(activeTasks)
+	pausedTasks := js.getPausedTasks(tasks)
+	
+	// Recommend completing tasks that are near completion
+	for _, task := range nearCompletionTasks {
+		if len(recommendations) >= limit {
+			break
+		}
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "complete_task",
+			Title:       fmt.Sprintf("Complete task: '%s'", task.Title),
+			Description: "This task appears to be near completion based on recent activity",
+			Rationale:   fmt.Sprintf("Task has consistent recent activity (%d entries)", len(task.Entries)),
+			Priority:    "high",
+			Confidence:  0.8,
+			SuggestedTags: []string{"completion", "finish"},
+		})
+	}
+	
+	// Recommend resuming paused tasks
+	for _, task := range pausedTasks {
+		if len(recommendations) >= limit {
+			break
+		}
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "resume_task",
+			Title:       fmt.Sprintf("Resume paused task: '%s'", task.Title),
+			Description: "Consider resuming this paused task or updating its status",
+			Rationale:   fmt.Sprintf("Task has been paused since %s", task.Updated.Format("2006-01-02")),
+			Priority:    "medium",
+			Confidence:  0.6,
+			SuggestedTags: []string{"resume", "paused"},
+		})
+	}
+	
+	return recommendations
+}
+
+func (js *JournalService) generatePriorityRecommendations(tasks []*Task, limit int) []TaskRecommendation {
+	var recommendations []TaskRecommendation
+	
+	urgentTasks := js.getUrgentTasks(tasks)
+	oldTasks := js.getOldActiveTasks(tasks)
+	
+	// Recommend urgent task attention
+	for _, task := range urgentTasks {
+		if len(recommendations) >= limit {
+			break
+		}
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "urgent_attention",
+			Title:       fmt.Sprintf("Urgent: Focus on '%s'", task.Title),
+			Description: "This task is marked as urgent and needs immediate attention",
+			Rationale:   "Task has urgent priority level",
+			Priority:    "urgent",
+			Confidence:  0.9,
+			SuggestedTags: []string{"urgent", "priority"},
+		})
+	}
+	
+	// Recommend priority review for old tasks
+	for _, task := range oldTasks {
+		if len(recommendations) >= limit {
+			break
+		}
+		recommendations = append(recommendations, TaskRecommendation{
+			Type:        "priority_review",
+			Title:       fmt.Sprintf("Review priority of '%s'", task.Title),
+			Description: "This long-running task may need priority adjustment",
+			Rationale:   fmt.Sprintf("Task created %s and still active", task.Created.Format("2006-01-02")),
+			Priority:    "medium",
+			Confidence:  0.5,
+			SuggestedTags: []string{"priority-review", "long-running"},
+		})
+	}
+	
+	return recommendations
+}
+
+// Helper functions for task analysis
+func (js *JournalService) getActiveTasks(tasks []*Task) []*Task {
+	var active []*Task
+	for _, task := range tasks {
+		if task.Status == "active" {
+			active = append(active, task)
+		}
+	}
+	return active
+}
+
+func (js *JournalService) getCompletedTasks(tasks []*Task) []*Task {
+	var completed []*Task
+	for _, task := range tasks {
+		if task.Status == "completed" {
+			completed = append(completed, task)
+		}
+	}
+	return completed
+}
+
+func (js *JournalService) getPausedTasks(tasks []*Task) []*Task {
+	var paused []*Task
+	for _, task := range tasks {
+		if task.Status == "paused" {
+			paused = append(paused, task)
+		}
+	}
+	return paused
+}
+
+func (js *JournalService) getTasksByType(tasks []*Task, taskType string) []*Task {
+	var filtered []*Task
+	for _, task := range tasks {
+		if task.Type == taskType {
+			filtered = append(filtered, task)
+		}
+	}
+	return filtered
+}
+
+func (js *JournalService) getStaleTasks(tasks []*Task) []*Task {
+	var stale []*Task
+	cutoff := time.Now().AddDate(0, 0, -7) // 7 days ago
+	for _, task := range tasks {
+		if task.Status == "active" && task.Updated.Before(cutoff) {
+			stale = append(stale, task)
+		}
+	}
+	return stale
+}
+
+func (js *JournalService) getNearCompletionTasks(tasks []*Task) []*Task {
+	var nearCompletion []*Task
+	recent := time.Now().AddDate(0, 0, -3) // Last 3 days
+	for _, task := range tasks {
+		if task.Status == "active" && len(task.Entries) >= 3 && task.Updated.After(recent) {
+			nearCompletion = append(nearCompletion, task)
+		}
+	}
+	return nearCompletion
+}
+
+func (js *JournalService) getUrgentTasks(tasks []*Task) []*Task {
+	var urgent []*Task
+	for _, task := range tasks {
+		if task.Priority == "urgent" && task.Status == "active" {
+			urgent = append(urgent, task)
+		}
+	}
+	return urgent
+}
+
+func (js *JournalService) getOldActiveTasks(tasks []*Task) []*Task {
+	var old []*Task
+	cutoff := time.Now().AddDate(0, 0, -30) // 30 days ago
+	for _, task := range tasks {
+		if task.Status == "active" && task.Created.Before(cutoff) {
+			old = append(old, task)
+		}
+	}
+	return old
+}
+
+func (js *JournalService) getFrequentTaskTypes(tasks []*Task) map[string]int {
+	typeCounts := make(map[string]int)
+	for _, task := range tasks {
+		if task.Status == "active" {
+			typeCounts[task.Type]++
+		}
+	}
+	return typeCounts
+}
+
+func (js *JournalService) calculateAnalysisMetrics(tasks []*Task) map[string]interface{} {
+	metrics := make(map[string]interface{})
+	
+	statusCounts := make(map[string]int)
+	typeCounts := make(map[string]int)
+	totalEntries := 0
+	
+	for _, task := range tasks {
+		statusCounts[task.Status]++
+		typeCounts[task.Type]++
+		totalEntries += len(task.Entries)
+	}
+	
+	metrics["total_tasks"] = len(tasks)
+	metrics["total_entries"] = totalEntries
+	metrics["status_breakdown"] = statusCounts
+	metrics["type_breakdown"] = typeCounts
+	
+	if len(tasks) > 0 {
+		metrics["avg_entries_per_task"] = float64(totalEntries) / float64(len(tasks))
+	}
+	
+	return metrics
+}
+
+// Analytics helper functions
+func (js *JournalService) filterTasksByTimePeriod(tasks []*Task, timePeriod string) []*Task {
+	if timePeriod == "all" {
+		return tasks
+	}
+	
+	var cutoffDate time.Time
+	now := time.Now()
+	
+	switch timePeriod {
+	case "week":
+		cutoffDate = now.AddDate(0, 0, -7)
+	case "month":
+		cutoffDate = now.AddDate(0, -1, 0)
+	case "quarter":
+		cutoffDate = now.AddDate(0, -3, 0)
+	case "year":
+		cutoffDate = now.AddDate(-1, 0, 0)
+	default:
+		return tasks
+	}
+	
+	var filtered []*Task
+	for _, task := range tasks {
+		if task.Updated.After(cutoffDate) || task.Created.After(cutoffDate) {
+			filtered = append(filtered, task)
+		}
+	}
+	
+	return filtered
+}
+
+func (js *JournalService) generateAnalyticsReport(tasks []*Task, reportType, timePeriod string) AnalyticsReport {
+	report := AnalyticsReport{
+		ReportType:  reportType,
+		TimePeriod:  timePeriod,
+		GeneratedAt: time.Now(),
+		TaskMetrics: js.calculateTaskMetrics(tasks),
+		ProductivityMetrics: js.calculateProductivityMetrics(tasks, timePeriod),
+		PatternAnalysis: js.calculatePatternAnalysis(tasks),
+		Insights: js.generateInsights(tasks, reportType),
+	}
+	
+	if reportType == "trends" || reportType == "overview" {
+		report.Trends = js.calculateTrends(tasks, timePeriod)
+	}
+	
+	report.Summary = js.generateReportSummary(report, tasks)
+	
+	return report
+}
+
+func (js *JournalService) calculateTaskMetrics(tasks []*Task) TaskMetrics {
+	metrics := TaskMetrics{
+		TotalTasks: len(tasks),
+		ByStatus:   make(map[string]int),
+		ByType:     make(map[string]int),
+		ByPriority: make(map[string]int),
+	}
+	
+	totalEntries := 0
+	completedTasks := 0
+	
+	for _, task := range tasks {
+		metrics.ByStatus[task.Status]++
+		metrics.ByType[task.Type]++
+		
+		priority := task.Priority
+		if priority == "" {
+			priority = "none"
+		}
+		metrics.ByPriority[priority]++
+		
+		totalEntries += len(task.Entries)
+		
+		if task.Status == "completed" {
+			completedTasks++
+		}
+	}
+	
+	metrics.TotalEntries = totalEntries
+	
+	if len(tasks) > 0 {
+		metrics.AverageEntries = float64(totalEntries) / float64(len(tasks))
+		metrics.CompletionRate = float64(completedTasks) / float64(len(tasks))
+	}
+	
+	return metrics
+}
+
+func (js *JournalService) calculateProductivityMetrics(tasks []*Task, timePeriod string) ProductivityMetrics {
+	metrics := ProductivityMetrics{}
+	
+	var completedTasks []*Task
+	var totalDuration float64
+	var durationCount int
+	typeEntries := make(map[string]int)
+	entriesInPeriod := 0
+	
+	// Calculate time period bounds
+	now := time.Now()
+	var periodStart time.Time
+	switch timePeriod {
+	case "week":
+		periodStart = now.AddDate(0, 0, -7)
+	case "month":
+		periodStart = now.AddDate(0, -1, 0)
+	case "quarter":
+		periodStart = now.AddDate(0, -3, 0)
+	case "year":
+		periodStart = now.AddDate(-1, 0, 0)
+	default:
+		periodStart = time.Time{} // All time
+	}
+	
+	for _, task := range tasks {
+		// Count entries in period
+		for _, entry := range task.Entries {
+			if timePeriod == "all" || entry.Timestamp.After(periodStart) {
+				entriesInPeriod++
+				typeEntries[task.Type]++
+			}
+		}
+		
+		// Track completed tasks
+		if task.Status == "completed" {
+			completedTasks = append(completedTasks, task)
+			if timePeriod == "all" || task.Updated.After(periodStart) {
+				metrics.TasksCompletedPeriod++
+			}
+			
+			// Calculate task duration
+			duration := task.Updated.Sub(task.Created).Hours() / 24 // Convert to days
+			if duration > 0 {
+				totalDuration += duration
+				durationCount++
+			}
+		}
+	}
+	
+	metrics.EntriesAddedPeriod = entriesInPeriod
+	
+	if durationCount > 0 {
+		metrics.AverageTaskDuration = totalDuration / float64(durationCount)
+	}
+	
+	// Find most productive type
+	maxEntries := 0
+	for taskType, entries := range typeEntries {
+		if entries > maxEntries {
+			maxEntries = entries
+			metrics.MostProductiveType = taskType
+		}
+	}
+	
+	// Calculate productivity score (arbitrary metric)
+	if len(tasks) > 0 {
+		metrics.ProductivityScore = (float64(metrics.TasksCompletedPeriod) * 2 + 
+			float64(metrics.EntriesAddedPeriod) * 0.1) / float64(len(tasks))
+	}
+	
+	return metrics
+}
+
+func (js *JournalService) calculatePatternAnalysis(tasks []*Task) PatternAnalysis {
+	analysis := PatternAnalysis{
+		WorkPatterns:      make(map[string]int),
+		TimeToCompletion:  make(map[string]float64),
+	}
+	
+	typeCounts := make(map[string]int)
+	tagCounts := make(map[string]int)
+	typeCompletionTimes := make(map[string][]float64)
+	
+	for _, task := range tasks {
+		typeCounts[task.Type]++
+		
+		// Count tags
+		for _, tag := range task.Tags {
+			tagCounts[tag]++
+		}
+		
+		// Analyze work patterns (entry frequency)
+		if len(task.Entries) > 0 {
+			// Simple pattern: tasks with many entries vs few entries
+			if len(task.Entries) >= 5 {
+				analysis.WorkPatterns["intensive"]++
+			} else {
+				analysis.WorkPatterns["light"]++
+			}
+		}
+		
+		// Calculate completion time by type
+		if task.Status == "completed" {
+			duration := task.Updated.Sub(task.Created).Hours() / 24 // Days
+			if duration > 0 {
+				typeCompletionTimes[task.Type] = append(typeCompletionTimes[task.Type], duration)
+			}
+		}
+	}
+	
+	// Find most frequent type
+	maxCount := 0
+	for taskType, count := range typeCounts {
+		if count > maxCount {
+			maxCount = count
+			analysis.MostFrequentType = taskType
+		}
+	}
+	
+	// Get common tags (more than 1 occurrence)
+	for tag, count := range tagCounts {
+		if count > 1 {
+			analysis.CommonTags = append(analysis.CommonTags, tag)
+		}
+	}
+	
+	// Calculate average completion time by type
+	for taskType, durations := range typeCompletionTimes {
+		if len(durations) > 0 {
+			sum := 0.0
+			for _, duration := range durations {
+				sum += duration
+			}
+			analysis.TimeToCompletion[taskType] = sum / float64(len(durations))
+		}
+	}
+	
+	return analysis
+}
+
+func (js *JournalService) calculateTrends(tasks []*Task, timePeriod string) []Trend {
+	var trends []Trend
+	
+	// Simple trend calculation comparing recent vs previous period
+	now := time.Now()
+	var recentStart, previousStart time.Time
+	
+	switch timePeriod {
+	case "week":
+		recentStart = now.AddDate(0, 0, -7)
+		previousStart = now.AddDate(0, 0, -14)
+	case "month":
+		recentStart = now.AddDate(0, -1, 0)
+		previousStart = now.AddDate(0, -2, 0)
+	case "quarter":
+		recentStart = now.AddDate(0, -3, 0)
+		previousStart = now.AddDate(0, -6, 0)
+	case "year":
+		recentStart = now.AddDate(-1, 0, 0)
+		previousStart = now.AddDate(-2, 0, 0)
+	default:
+		return trends // No trends for "all" period
+	}
+	
+	recentTasks := 0
+	previousTasks := 0
+	recentEntries := 0
+	previousEntries := 0
+	
+	for _, task := range tasks {
+		// Count tasks created in periods
+		if task.Created.After(recentStart) {
+			recentTasks++
+		} else if task.Created.After(previousStart) && task.Created.Before(recentStart) {
+			previousTasks++
+		}
+		
+		// Count entries in periods
+		for _, entry := range task.Entries {
+			if entry.Timestamp.After(recentStart) {
+				recentEntries++
+			} else if entry.Timestamp.After(previousStart) && entry.Timestamp.Before(recentStart) {
+				previousEntries++
+			}
+		}
+	}
+	
+	// Calculate task creation trend
+	if previousTasks > 0 {
+		change := float64(recentTasks-previousTasks) / float64(previousTasks) * 100
+		direction := "stable"
+		if change > 5 {
+			direction = "up"
+		} else if change < -5 {
+			direction = "down"
+		}
+		
+		trends = append(trends, Trend{
+			Metric:    "task_creation",
+			Direction: direction,
+			Change:    change,
+			Period:    timePeriod,
+		})
+	}
+	
+	// Calculate activity trend
+	if previousEntries > 0 {
+		change := float64(recentEntries-previousEntries) / float64(previousEntries) * 100
+		direction := "stable"
+		if change > 10 {
+			direction = "up"
+		} else if change < -10 {
+			direction = "down"
+		}
+		
+		trends = append(trends, Trend{
+			Metric:    "activity_level",
+			Direction: direction,
+			Change:    change,
+			Period:    timePeriod,
+		})
+	}
+	
+	return trends
+}
+
+func (js *JournalService) generateInsights(tasks []*Task, reportType string) []string {
+	var insights []string
+	
+	if len(tasks) == 0 {
+		return []string{"No tasks available for analysis"}
+	}
+	
+	// General insights
+	activeTasks := js.getActiveTasks(tasks)
+	completedTasks := js.getCompletedTasks(tasks)
+	
+	if len(activeTasks) > len(completedTasks)*2 {
+		insights = append(insights, "You have many active tasks relative to completed ones. Consider focusing on completion.")
+	}
+	
+	// Type-based insights
+	typeCounts := make(map[string]int)
+	for _, task := range tasks {
+		typeCounts[task.Type]++
+	}
+	
+	maxType := ""
+	maxCount := 0
+	for taskType, count := range typeCounts {
+		if count > maxCount {
+			maxCount = count
+			maxType = taskType
+		}
+	}
+	
+	if maxType != "" {
+		insights = append(insights, fmt.Sprintf("Your primary focus area is '%s' tasks (%d tasks)", maxType, maxCount))
+	}
+	
+	// Productivity insights
+	staleTasks := js.getStaleTasks(tasks)
+	if len(staleTasks) > 0 {
+		insights = append(insights, fmt.Sprintf("You have %d stale tasks that haven't been updated recently", len(staleTasks)))
+	}
+	
+	// Entry patterns
+	totalEntries := 0
+	for _, task := range tasks {
+		totalEntries += len(task.Entries)
+	}
+	
+	if totalEntries > 0 && len(tasks) > 0 {
+		avgEntries := float64(totalEntries) / float64(len(tasks))
+		if avgEntries > 10 {
+			insights = append(insights, "Your tasks tend to have many entries, suggesting detailed tracking")
+		} else if avgEntries < 3 {
+			insights = append(insights, "Your tasks have few entries on average, consider more detailed logging")
+		}
+	}
+	
+	return insights
+}
+
+func (js *JournalService) generateReportSummary(report AnalyticsReport, tasks []*Task) string {
+	summary := fmt.Sprintf("Analytics report for %s period: ", report.TimePeriod)
+	summary += fmt.Sprintf("%d total tasks, ", report.TaskMetrics.TotalTasks)
+	summary += fmt.Sprintf("%.1f%% completion rate, ", report.TaskMetrics.CompletionRate*100)
+	summary += fmt.Sprintf("%d total entries. ", report.TaskMetrics.TotalEntries)
+	
+	if report.ProductivityMetrics.MostProductiveType != "" {
+		summary += fmt.Sprintf("Most active area: %s. ", report.ProductivityMetrics.MostProductiveType)
+	}
+	
+	if len(report.Trends) > 0 {
+		summary += fmt.Sprintf("Detected %d trends in your work patterns.", len(report.Trends))
+	}
+	
+	return summary
 }
