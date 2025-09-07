@@ -17,7 +17,12 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-//go:embed ../frontend/dist/*
+// TODO: Embed frontend files when built
+// For now, this is a placeholder - frontend will be embedded after npm run build
+// //go:embed frontend/dist/*
+// var frontendFiles embed.FS
+
+// Placeholder for development
 var frontendFiles embed.FS
 
 // WebServer provides REST API endpoints for the web interface
