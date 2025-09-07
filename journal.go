@@ -280,11 +280,48 @@ func (js *JournalService) ListTasks(ctx context.Context, request mcp.CallToolReq
 		return filtered[i].Updated.After(filtered[j].Updated)
 	})
 
+	// Apply pagination
+	limit := 50 // default
+	if limitStr := request.GetString("limit", ""); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			if parsedLimit > 200 {
+				parsedLimit = 200 // max limit
+			}
+			limit = parsedLimit
+		}
+	}
+
+	offset := 0 // default
+	if offsetStr := request.GetString("offset", ""); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
+		}
+	}
+
+	totalTasks := len(filtered)
+	startIndex := offset
+	endIndex := offset + limit
+	
+	if startIndex >= totalTasks {
+		startIndex = totalTasks
+		endIndex = totalTasks
+	} else if endIndex > totalTasks {
+		endIndex = totalTasks
+	}
+
+	paginatedTasks := filtered[startIndex:endIndex]
+
 	// Format as list
 	var result strings.Builder
-	result.WriteString("# Task List\n\n")
+	result.WriteString(fmt.Sprintf("# Task List (showing %d-%d of %d total)\n\n", 
+		startIndex+1, endIndex, totalTasks))
 
-	for _, task := range filtered {
+	if len(paginatedTasks) == 0 {
+		result.WriteString("No tasks found matching the criteria.")
+		return mcp.NewToolResultText(result.String()), nil
+	}
+
+	for _, task := range paginatedTasks {
 		result.WriteString(fmt.Sprintf("## %s: %s\n", task.ID, task.Title))
 		result.WriteString(fmt.Sprintf("**Type:** %s | **Status:** %s", task.Type, task.Status))
 		if task.Priority != "" {
@@ -371,9 +408,8 @@ func (js *JournalService) GetDailyLog(ctx context.Context, request mcp.CallToolR
 	}
 
 	// Validate date format
-	_, err = time.Parse("2006-01-02", date)
-	if err != nil {
-		return mcp.NewToolResultError("Invalid date format. Use YYYY-MM-DD"), nil
+	if validationErr := js.validateDateFormat(date, "date"); validationErr != nil {
+		return mcp.NewToolResultError(validationErr.Error()), nil
 	}
 
 	// Load daily activity file if it exists
@@ -424,10 +460,11 @@ func (js *JournalService) GetWeeklyLog(ctx context.Context, request mcp.CallTool
 	}
 
 	// Validate date format
-	startDate, err := time.Parse("2006-01-02", weekStart)
-	if err != nil {
-		return mcp.NewToolResultError("Invalid date format. Use YYYY-MM-DD"), nil
+	if validationErr := js.validateDateFormat(weekStart, "week_start"); validationErr != nil {
+		return mcp.NewToolResultError(validationErr.Error()), nil
 	}
+	
+	startDate, _ := time.Parse("2006-01-02", weekStart) // Safe to parse since validation passed
 
 	var weeklyMarkdown strings.Builder
 	weeklyMarkdown.WriteString(fmt.Sprintf("# Weekly Log: %s to %s\n\n", 
@@ -524,9 +561,8 @@ func (js *JournalService) CreateOneOnOne(ctx context.Context, request mcp.CallTo
 	}
 
 	// Validate date format
-	_, err = time.Parse("2006-01-02", date)
-	if err != nil {
-		return mcp.NewToolResultError("Invalid date format. Use YYYY-MM-DD"), nil
+	if validationErr := js.validateDateFormat(date, "date"); validationErr != nil {
+		return mcp.NewToolResultError(validationErr.Error()), nil
 	}
 
 	oneOnOne := OneOnOne{
@@ -668,16 +704,11 @@ func (js *JournalService) SearchEntries(ctx context.Context, request mcp.CallToo
 	dateFrom := request.GetString("date_from", "")
 	dateTo := request.GetString("date_to", "")
 
-	var fromTime, toTime time.Time
-	if dateFrom != "" {
-		if parsed, err := time.Parse("2006-01-02", dateFrom); err == nil {
-			fromTime = parsed
-		}
-	}
-	if dateTo != "" {
-		if parsed, err := time.Parse("2006-01-02", dateTo); err == nil {
-			toTime = parsed.AddDate(0, 0, 1) // Include the entire day
-		}
+	// Parse dates safely (invalid dates are ignored with warning in logs)
+	fromTime := js.parseDateSafely(dateFrom)
+	toTime := js.parseDateSafely(dateTo)
+	if !toTime.IsZero() {
+		toTime = toTime.AddDate(0, 0, 1) // Include the entire day
 	}
 
 	// Search through all tasks
@@ -837,16 +868,11 @@ func (js *JournalService) ExportData(ctx context.Context, request mcp.CallToolRe
 	dateTo := request.GetString("date_to", "")
 	taskFilter := request.GetString("task_filter", "")
 
-	var fromTime, toTime time.Time
-	if dateFrom != "" {
-		if parsed, err := time.Parse("2006-01-02", dateFrom); err == nil {
-			fromTime = parsed
-		}
-	}
-	if dateTo != "" {
-		if parsed, err := time.Parse("2006-01-02", dateTo); err == nil {
-			toTime = parsed.AddDate(0, 0, 1)
-		}
+	// Parse dates safely (invalid dates are ignored)
+	fromTime := js.parseDateSafely(dateFrom)
+	toTime := js.parseDateSafely(dateTo)
+	if !toTime.IsZero() {
+		toTime = toTime.AddDate(0, 0, 1) // Include the entire day
 	}
 
 	// Load and filter tasks
@@ -1087,7 +1113,24 @@ func (js *JournalService) filterTasks(tasks []*Task, filters map[string]interfac
 			}
 		}
 
-		// TODO: Add date filtering
+		// Filter by date range (using Updated timestamp)
+		if dateFromStr, exists := filters["date_from"].(string); exists && dateFromStr != "" {
+			dateFrom := js.parseDateSafely(dateFromStr)
+			if !dateFrom.IsZero() && task.Updated.Before(dateFrom) {
+				include = false
+			}
+		}
+
+		if dateToStr, exists := filters["date_to"].(string); exists && dateToStr != "" {
+			dateTo := js.parseDateSafely(dateToStr)
+			if !dateTo.IsZero() {
+				// Add one day to include the entire end date
+				endOfDay := dateTo.Add(24 * time.Hour)
+				if task.Updated.After(endOfDay) {
+					include = false
+				}
+			}
+		}
 
 		if include {
 			filtered = append(filtered, task)
@@ -1095,6 +1138,33 @@ func (js *JournalService) filterTasks(tasks []*Task, filters map[string]interfac
 	}
 
 	return filtered
+}
+
+// validateDateFormat validates a date string and returns a user-friendly error
+func (js *JournalService) validateDateFormat(dateStr, fieldName string) error {
+	if dateStr == "" {
+		return fmt.Errorf("%s is required", fieldName)
+	}
+	
+	_, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return fmt.Errorf("Invalid %s format. Expected YYYY-MM-DD (e.g., 2025-01-15), got: %s", fieldName, dateStr)
+	}
+	
+	return nil
+}
+
+// parseDateSafely parses a date string and returns zero time if invalid
+func (js *JournalService) parseDateSafely(dateStr string) time.Time {
+	if dateStr == "" {
+		return time.Time{}
+	}
+	
+	if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+		return parsed
+	}
+	
+	return time.Time{}
 }
 
 func (js *JournalService) formatTaskAsMarkdown(task *Task) string {

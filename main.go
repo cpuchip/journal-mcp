@@ -75,12 +75,24 @@ func registerTools(s *server.MCPServer, js *JournalService) {
 	), js.GetTask)
 
 	s.AddTool(mcp.NewTool("list_tasks",
-		mcp.WithDescription("List tasks with optional filtering"),
+		mcp.WithDescription("List tasks with optional filtering and pagination"),
 		mcp.WithString("status",
 			mcp.Description("Filter by status: active, completed, paused"),
 		),
 		mcp.WithString("type",
 			mcp.Description("Filter by type: work, learning, personal, investigation"),
+		),
+		mcp.WithString("date_from",
+			mcp.Description("Filter tasks updated from this date (YYYY-MM-DD format)"),
+		),
+		mcp.WithString("date_to",
+			mcp.Description("Filter tasks updated until this date (YYYY-MM-DD format)"),
+		),
+		mcp.WithString("limit",
+			mcp.Description("Maximum number of tasks to return (default: 50, max: 200)"),
+		),
+		mcp.WithString("offset",
+			mcp.Description("Number of tasks to skip for pagination (default: 0)"),
 		),
 	), js.ListTasks)
 

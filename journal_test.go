@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -821,7 +822,7 @@ func TestGetWeeklyLog(t *testing.T) {
 				"week_start": "invalid-date",
 			},
 			expectError: true,
-			errorMsg:    "Invalid date format",
+			errorMsg:    "Invalid week_start format",
 		},
 	}
 
@@ -856,6 +857,265 @@ func TestGetWeeklyLog(t *testing.T) {
 				if !contains(content.Text, "Weekly Summary") {
 					t.Error("Expected weekly summary section")
 				}
+			}
+		})
+	}
+}
+
+// TestDateFiltering tests the date filtering functionality in list_tasks
+func TestDateFiltering(t *testing.T) {
+	js, tempDir := createTestJournalService(t)
+	ctx := context.Background()
+
+	// Create test tasks with different dates
+	tasks := []Task{
+		{
+			ID:      "TASK-OLD",
+			Title:   "Old task",
+			Type:    "work",
+			Status:  "active",
+			Created: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
+			Updated: time.Date(2025, 1, 1, 15, 0, 0, 0, time.UTC),
+			Entries: []Entry{},
+		},
+		{
+			ID:      "TASK-MIDDLE",
+			Title:   "Middle task",
+			Type:    "work",
+			Status:  "active",
+			Created: time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
+			Updated: time.Date(2025, 1, 5, 15, 0, 0, 0, time.UTC),
+			Entries: []Entry{},
+		},
+		{
+			ID:      "TASK-NEW",
+			Title:   "New task",
+			Type:    "work",
+			Status:  "active",
+			Created: time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC),
+			Updated: time.Date(2025, 1, 10, 15, 0, 0, 0, time.UTC),
+			Entries: []Entry{},
+		},
+	}
+
+	// Save test tasks
+	for _, task := range tasks {
+		taskPath := filepath.Join(tempDir, "tasks", task.ID+".json")
+		taskData, _ := json.MarshalIndent(task, "", "  ")
+		os.WriteFile(taskPath, taskData, 0644)
+	}
+
+	tests := []struct {
+		name           string
+		args           map[string]interface{}
+		expectedTasks  []string // Task IDs that should be included
+		expectError    bool
+	}{
+		{
+			name: "filter from date_from only",
+			args: map[string]interface{}{
+				"date_from": "2025-01-05",
+			},
+			expectedTasks: []string{"TASK-MIDDLE", "TASK-NEW"}, // Should exclude TASK-OLD
+		},
+		{
+			name: "filter with date_to only",
+			args: map[string]interface{}{
+				"date_to": "2025-01-05",
+			},
+			expectedTasks: []string{"TASK-OLD", "TASK-MIDDLE"}, // Should exclude TASK-NEW
+		},
+		{
+			name: "filter with date range",
+			args: map[string]interface{}{
+				"date_from": "2025-01-02",
+				"date_to":   "2025-01-08",
+			},
+			expectedTasks: []string{"TASK-MIDDLE"}, // Only middle task
+		},
+		{
+			name: "no date filters",
+			args: map[string]interface{}{},
+			expectedTasks: []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}, // All tasks
+		},
+		{
+			name: "invalid date_from format (should ignore filter)",
+			args: map[string]interface{}{
+				"date_from": "invalid-date",
+			},
+			expectedTasks: []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}, // All tasks (invalid date ignored)
+		},
+		{
+			name: "invalid date_to format (should ignore filter)",
+			args: map[string]interface{}{
+				"date_to": "invalid-date",
+			},
+			expectedTasks: []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}, // All tasks (invalid date ignored)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := createMockRequest(tt.args)
+			result, err := js.ListTasks(ctx, req)
+
+			if tt.expectError {
+				if err != nil {
+					t.Fatalf("Expected error in result, got actual error: %v", err)
+				}
+				if !result.IsError {
+					t.Fatal("Expected error result")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
+				if result.IsError {
+					content := result.Content[0].(mcp.TextContent)
+					t.Fatalf("Unexpected error result: %s", content.Text)
+				}
+				
+				content := result.Content[0].(mcp.TextContent)
+				resultText := content.Text
+				
+				// Check that expected tasks are present
+				for _, expectedTask := range tt.expectedTasks {
+					if !contains(resultText, expectedTask) {
+						t.Errorf("Expected task '%s' to be in results, but it wasn't found", expectedTask)
+					}
+				}
+				
+				// Check that only expected tasks are present
+				allTaskIDs := []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}
+				for _, taskID := range allTaskIDs {
+					isExpected := false
+					for _, expectedTask := range tt.expectedTasks {
+						if taskID == expectedTask {
+							isExpected = true
+							break
+						}
+					}
+					if !isExpected && contains(resultText, taskID) {
+						t.Errorf("Unexpected task '%s' found in results", taskID)
+					}
+				}
+			}
+		})
+	}
+}
+// TestPagination tests the pagination functionality in list_tasks
+func TestPagination(t *testing.T) {
+	js, tempDir := createTestJournalService(t)
+	ctx := context.Background()
+
+	// Create 5 test tasks
+	tasks := []Task{}
+	for i := 1; i <= 5; i++ {
+		task := Task{
+			ID:      fmt.Sprintf("TASK-%d", i),
+			Title:   fmt.Sprintf("Task %d", i),
+			Type:    "work",
+			Status:  "active",
+			Created: time.Date(2025, 1, i, 10, 0, 0, 0, time.UTC),
+			Updated: time.Date(2025, 1, i, 15, 0, 0, 0, time.UTC),
+			Entries: []Entry{},
+		}
+		tasks = append(tasks, task)
+		
+		// Save task
+		taskPath := filepath.Join(tempDir, "tasks", task.ID+".json")
+		taskData, _ := json.MarshalIndent(task, "", "  ")
+		os.WriteFile(taskPath, taskData, 0644)
+	}
+
+	tests := []struct {
+		name           string
+		args           map[string]interface{}
+		expectedCount  int
+		shouldContain  []string
+	}{
+		{
+			name: "default pagination (no limit/offset)",
+			args: map[string]interface{}{},
+			expectedCount: 5,
+			shouldContain: []string{"TASK-1", "TASK-2", "TASK-3", "TASK-4", "TASK-5"},
+		},
+		{
+			name: "limit 2 tasks",
+			args: map[string]interface{}{
+				"limit": "2",
+			},
+			expectedCount: 2,
+			shouldContain: []string{"TASK-5", "TASK-4"}, // Most recent first
+		},
+		{
+			name: "offset 2, limit 2",
+			args: map[string]interface{}{
+				"offset": "2",
+				"limit":  "2",
+			},
+			expectedCount: 2,
+			shouldContain: []string{"TASK-3", "TASK-2"},
+		},
+		{
+			name: "offset beyond total (should return empty)",
+			args: map[string]interface{}{
+				"offset": "10",
+			},
+			expectedCount: 0,
+			shouldContain: []string{},
+		},
+		{
+			name: "large limit (should be capped at total)",
+			args: map[string]interface{}{
+				"limit": "250", // Should be capped at 200, but we only have 5 tasks
+			},
+			expectedCount: 5,
+			shouldContain: []string{"TASK-1", "TASK-2", "TASK-3", "TASK-4", "TASK-5"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := createMockRequest(tt.args)
+			result, err := js.ListTasks(ctx, req)
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if result.IsError {
+				content := result.Content[0].(mcp.TextContent)
+				t.Fatalf("Unexpected error result: %s", content.Text)
+			}
+			
+			content := result.Content[0].(mcp.TextContent)
+			resultText := content.Text
+			
+			// Check pagination info in header
+			if tt.expectedCount > 0 {
+				if !contains(resultText, fmt.Sprintf("of %d total", 5)) {
+					t.Errorf("Expected pagination header to show total of 5")
+				}
+			}
+			
+			// Check that expected tasks are present
+			for _, expectedTask := range tt.shouldContain {
+				if !contains(resultText, expectedTask) {
+					t.Errorf("Expected task '%s' to be in results, but it wasn't found", expectedTask)
+				}
+			}
+			
+			// Count actual task occurrences 
+			actualCount := 0
+			for i := 1; i <= 5; i++ {
+				taskID := fmt.Sprintf("TASK-%d", i)
+				if contains(resultText, taskID) {
+					actualCount++
+				}
+			}
+			
+			if actualCount != tt.expectedCount {
+				t.Errorf("Expected %d tasks in results, got %d", tt.expectedCount, actualCount)
 			}
 		})
 	}
