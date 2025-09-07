@@ -11,7 +11,7 @@ A Model Context Protocol (MCP) server for task-based work journaling with AI int
 - **Tagging system** - Flat tag structure for easy categorization
 - **Human-readable storage** - All data stored as JSON and Markdown
 - **Search and export** - Find entries and export to various formats
-- **Web interface** - View and edit journal entries through a web UI
+- **Web interface** - View and edit journal entries through a REST API and planned web UI
 
 ## Installation
 
@@ -33,11 +33,24 @@ A Model Context Protocol (MCP) server for task-based work journaling with AI int
 
 ## Usage
 
-### As MCP Server
+### Running Modes
 
-Run the server in stdio mode for MCP integration:
+**MCP Server Only (Default)**
 ```bash
 ./journal-mcp
+```
+
+**Web Server Only**
+```bash
+./journal-mcp --web
+# API available at http://localhost:8080/api
+# Documentation at http://localhost:8080/api/docs
+```
+
+**Dual Mode (MCP + Web)**
+```bash
+./journal-mcp --dual
+# Both MCP stdio and web server running
 ```
 
 ### Configuration
@@ -71,7 +84,19 @@ The journal data is stored in `~/.journal-mcp/` with the following structure:
 
 ### Search & Export
 - `search_entries` - Search through all journal content
-- `export_data` - Export to JSON, Markdown, or PDF
+- `export_data` - Export to JSON, Markdown, or CSV
+
+### GitHub Integration
+- `sync_with_github` - Sync assigned GitHub issues with tasks
+- `pull_issue_updates` - Pull latest comments and events from GitHub issues
+- `create_task_from_github_issue` - Create task from GitHub issue URL
+
+### Data Management
+- `create_data_backup` - Create comprehensive data backups
+- `restore_data_backup` - Restore from backup files
+- `get_configuration` - Get current configuration
+- `update_configuration` - Update system configuration
+- `migrate_data` - Data migration framework (future SQLite support)
 
 ## Task Types
 
@@ -110,6 +135,28 @@ The journal data is stored in `~/.journal-mcp/` with the following structure:
    }
    ```
 
+## Phase 3 Features (NEW!)
+
+### Enhanced GitHub Integration
+- **Automatic sync** with assigned GitHub issues
+- **Bidirectional updates** - issue status changes update tasks
+- **Comment integration** - pull issue comments as task entries
+- **Event tracking** - track labels, assignments, and status changes
+
+### Web Interface Foundation
+- **Complete REST API** for all MCP functionality
+- **Real-time updates** via WebSocket
+- **CORS support** for frontend development
+- **OpenAPI documentation** at `/api/docs`
+
+### Data Management
+- **Backup & restore** with ZIP compression
+- **Configuration management** with YAML support
+- **Migration framework** for future database support
+- **Data integrity** validation and versioning
+
+See [PHASE3_FEATURES.md](PHASE3_FEATURES.md) for complete documentation.
+
 ## AI Integration
 
 This MCP is designed to work with AI coding assistants to:
@@ -119,6 +166,7 @@ This MCP is designed to work with AI coding assistants to:
 - **Generate summaries** - For daily standups or reviews
 - **Track learning** - Monitor skill development over time
 - **Prepare 1-on-1s** - Surface relevant updates and blockers
+- **GitHub automation** - Auto-create tasks from assigned issues
 
 ## Development
 
