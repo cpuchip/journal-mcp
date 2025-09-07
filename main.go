@@ -193,4 +193,49 @@ func registerTools(s *server.MCPServer, js *JournalService) {
 			mcp.Description("Filter by task type: work, learning, personal, investigation"),
 		),
 	), js.ExportData)
+
+	// Import and Analytics Tools
+	s.AddTool(mcp.NewTool("import_data",
+		mcp.WithDescription("Import existing diary/journal data from various formats"),
+		mcp.WithString("content",
+			mcp.Required(),
+			mcp.Description("File content to import"),
+		),
+		mcp.WithString("format",
+			mcp.Required(),
+			mcp.Description("Input format: txt, markdown, json, csv"),
+		),
+		mcp.WithString("task_prefix",
+			mcp.Description("Optional prefix for auto-generated task IDs (default: 'IMPORT')"),
+		),
+		mcp.WithString("default_type",
+			mcp.Description("Default task type for imported entries: work, learning, personal, investigation (default: 'personal')"),
+		),
+	), js.ImportData)
+
+	s.AddTool(mcp.NewTool("get_task_recommendations",
+		mcp.WithDescription("Get AI-assisted task recommendations based on patterns and history"),
+		mcp.WithString("task_type",
+			mcp.Description("Filter recommendations by task type: work, learning, personal, investigation"),
+		),
+		mcp.WithString("focus_area",
+			mcp.Description("Focus area for recommendations: productivity, learning, completion, priority"),
+		),
+		mcp.WithString("limit",
+			mcp.Description("Maximum number of recommendations to return (default: 5, max: 20)"),
+		),
+	), js.GetTaskRecommendations)
+
+	s.AddTool(mcp.NewTool("get_analytics_report",
+		mcp.WithDescription("Generate comprehensive analytics and insights report"),
+		mcp.WithString("report_type",
+			mcp.Description("Type of report: overview, productivity, patterns, trends (default: overview)"),
+		),
+		mcp.WithString("time_period",
+			mcp.Description("Time period for analysis: week, month, quarter, year, all (default: month)"),
+		),
+		mcp.WithString("task_type",
+			mcp.Description("Filter by task type: work, learning, personal, investigation"),
+		),
+	), js.GetAnalyticsReport)
 }
