@@ -1120,3 +1120,273 @@ func TestPagination(t *testing.T) {
 		})
 	}
 }
+
+func TestImportData(t *testing.T) {
+	js, _ := createTestJournalService(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		content      string
+		format       string
+		taskPrefix   string
+		defaultType  string
+		expectError  bool
+		errorMsg     string
+		expectTasks  int
+		expectEntries int
+	}{
+		{
+			name:          "plain text import",
+			content:       "2024-01-01 First entry\nSecond entry without date\n2024-01-02 Third entry",
+			format:        "txt",
+			taskPrefix:    "TXT",
+			defaultType:   "personal",
+			expectError:   false,
+			expectTasks:   1,
+			expectEntries: 3,
+		},
+		{
+			name:          "markdown import",
+			content:       "# Task 1\nFirst entry\nSecond entry\n\n# Task 2\nAnother entry",
+			format:        "markdown",
+			taskPrefix:    "MD",
+			defaultType:   "work",
+			expectError:   false,
+			expectTasks:   2,
+			expectEntries: 3,
+		},
+		{
+			name:        "csv import",
+			content:     "title,date,content\nTask 1,2024-01-01,First entry\nTask 2,2024-01-02,Second entry",
+			format:      "csv",
+			taskPrefix:  "CSV",
+			defaultType: "learning",
+			expectError: false,
+			expectTasks: 2,
+			expectEntries: 2,
+		},
+		{
+			name:        "json import",
+			content:     `{"tasks": [{"id": "test", "title": "Test Task", "entries": [{"content": "Test entry", "timestamp": "2024-01-01T12:00:00Z"}]}]}`,
+			format:      "json",
+			taskPrefix:  "JSON",
+			defaultType: "investigation",
+			expectError: false,
+			expectTasks: 1,
+			expectEntries: 1,
+		},
+		{
+			name:        "missing content",
+			format:      "txt",
+			expectError: true,
+			errorMsg:    "content is required",
+		},
+		{
+			name:        "missing format",
+			content:     "test content",
+			expectError: true,
+			errorMsg:    "format is required",
+		},
+		{
+			name:        "invalid format",
+			content:     "test content",
+			format:      "xml",
+			expectError: true,
+			errorMsg:    "format must be one of: txt, markdown, json, csv",
+		},
+		{
+			name:        "invalid default type",
+			content:     "test content",
+			format:      "txt",
+			defaultType: "invalid",
+			expectError: true,
+			errorMsg:    "default_type must be one of: work, learning, personal, investigation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := map[string]interface{}{}
+			
+			if tt.content != "" {
+				args["content"] = tt.content
+			}
+			
+			if tt.format != "" {
+				args["format"] = tt.format
+			}
+			
+			if tt.taskPrefix != "" {
+				args["task_prefix"] = tt.taskPrefix
+			}
+			if tt.defaultType != "" {
+				args["default_type"] = tt.defaultType
+			}
+
+			result, err := js.ImportData(ctx, createMockRequest(args))
+			
+			if tt.expectError {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+				if !result.IsError {
+					t.Error("Expected error result")
+				}
+				if len(result.Content) == 0 {
+					t.Error("Expected error content")
+				}
+				content := result.Content[0].(mcp.TextContent)
+				if content.Text != tt.errorMsg {
+					t.Errorf("Expected error message '%s', got: %s", tt.errorMsg, content.Text)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if result == nil {
+				t.Error("Expected result, got nil")
+				return
+			}
+
+			if result.IsError || len(result.Content) == 0 {
+				t.Error("Expected non-empty result content")
+				return
+			}
+
+			content := result.Content[0].(mcp.TextContent)
+			resultText := content.Text
+
+			// Parse result as ImportResult
+			var importResult ImportResult
+			if err := json.Unmarshal([]byte(resultText), &importResult); err != nil {
+				t.Errorf("Failed to parse import result: %v", err)
+				return
+			}
+
+			if importResult.TasksCreated != tt.expectTasks {
+				t.Errorf("Expected %d tasks created, got %d", tt.expectTasks, importResult.TasksCreated)
+			}
+
+			if importResult.EntriesAdded != tt.expectEntries {
+				t.Errorf("Expected %d entries added, got %d", tt.expectEntries, importResult.EntriesAdded)
+			}
+
+			if importResult.Summary == "" {
+				t.Error("Expected non-empty summary")
+			}
+		})
+	}
+}
+
+func TestImportFormats(t *testing.T) {
+	js, _ := createTestJournalService(t)
+	ctx := context.Background()
+
+	t.Run("plain text with dates", func(t *testing.T) {
+		content := "2024-01-01 Started working on project\n" +
+			"Made good progress today\n" +
+			"2024-01-02 15:30 Completed the first milestone\n" +
+			"01/03/2024 Final review"
+
+		args := map[string]interface{}{
+			"content":      content,
+			"format":       "txt",
+			"task_prefix":  "TXT",
+			"default_type": "work",
+		}
+
+		result, err := js.ImportData(ctx, createMockRequest(args))
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		var importResult ImportResult
+		resultContent := result.Content[0].(mcp.TextContent)
+		if err := json.Unmarshal([]byte(resultContent.Text), &importResult); err != nil {
+			t.Fatalf("Failed to parse result: %v", err)
+		}
+
+		if importResult.TasksCreated != 1 {
+			t.Errorf("Expected 1 task, got %d", importResult.TasksCreated)
+		}
+
+		if importResult.EntriesAdded != 4 {
+			t.Errorf("Expected 4 entries, got %d", importResult.EntriesAdded)
+		}
+	})
+
+	t.Run("markdown with multiple tasks", func(t *testing.T) {
+		content := "# Project Alpha\n" +
+			"Initial planning phase\n" +
+			"Requirements gathering\n\n" +
+			"# Project Beta\n" +
+			"Started development\n" +
+			"First prototype complete\n\n" +
+			"# Project Gamma\n" +
+			"Research phase"
+
+		args := map[string]interface{}{
+			"content":      content,
+			"format":       "markdown",
+			"task_prefix":  "MD",
+			"default_type": "work",
+		}
+
+		result, err := js.ImportData(ctx, createMockRequest(args))
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		var importResult ImportResult
+		resultContent := result.Content[0].(mcp.TextContent)
+		if err := json.Unmarshal([]byte(resultContent.Text), &importResult); err != nil {
+			t.Fatalf("Failed to parse result: %v", err)
+		}
+
+		if importResult.TasksCreated != 3 {
+			t.Errorf("Expected 3 tasks, got %d", importResult.TasksCreated)
+		}
+
+		if importResult.EntriesAdded != 5 {
+			t.Errorf("Expected 5 entries, got %d", importResult.EntriesAdded)
+		}
+	})
+
+	t.Run("csv with various columns", func(t *testing.T) {
+		content := "title,date,content,priority\n" +
+			"\"Task 1\",2024-01-01,\"First task entry\",high\n" +
+			"\"Task 2\",2024-01-02,\"Second task entry\",medium\n" +
+			"\"Task 1\",2024-01-03,\"Follow-up entry\",high"
+
+		args := map[string]interface{}{
+			"content":      content,
+			"format":       "csv",
+			"task_prefix":  "CSV",
+			"default_type": "work",
+		}
+
+		result, err := js.ImportData(ctx, createMockRequest(args))
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		var importResult ImportResult
+		resultContent := result.Content[0].(mcp.TextContent)
+		if err := json.Unmarshal([]byte(resultContent.Text), &importResult); err != nil {
+			t.Fatalf("Failed to parse result: %v", err)
+		}
+
+		if importResult.TasksCreated != 2 {
+			t.Errorf("Expected 2 tasks, got %d", importResult.TasksCreated)
+		}
+
+		if importResult.EntriesAdded != 3 {
+			t.Errorf("Expected 3 entries, got %d", importResult.EntriesAdded)
+		}
+	})
+}

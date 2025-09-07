@@ -48,6 +48,14 @@ type OneOnOne struct {
 	Created  time.Time `json:"created"`
 }
 
+type ImportResult struct {
+	TasksCreated     int      `json:"tasks_created"`
+	EntriesAdded     int      `json:"entries_added"`
+	DuplicatesSkipped int      `json:"duplicates_skipped"`
+	Warnings         []string `json:"warnings,omitempty"`
+	Summary          string   `json:"summary"`
+}
+
 type DailyActivity struct {
 	Date  string             `json:"date"`
 	Tasks map[string][]Entry `json:"tasks"` // task_id -> entries for that day
@@ -1031,6 +1039,56 @@ func (js *JournalService) ExportData(ctx context.Context, request mcp.CallToolRe
 	return mcp.NewToolResultError("Unsupported format"), nil
 }
 
+func (js *JournalService) ImportData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	content, err := request.RequireString("content")
+	if err != nil {
+		return mcp.NewToolResultError("content is required"), nil
+	}
+
+	if strings.TrimSpace(content) == "" {
+		return mcp.NewToolResultError("content cannot be empty"), nil
+	}
+
+	format, err := request.RequireString("format")
+	if err != nil {
+		return mcp.NewToolResultError("format is required"), nil
+	}
+
+	taskPrefix := request.GetString("task_prefix", "IMPORT")
+	defaultType := request.GetString("default_type", "personal")
+
+	// Validate format
+	validFormats := map[string]bool{"txt": true, "markdown": true, "json": true, "csv": true}
+	if !validFormats[format] {
+		return mcp.NewToolResultError("format must be one of: txt, markdown, json, csv"), nil
+	}
+
+	// Validate default type
+	validTypes := map[string]bool{"work": true, "learning": true, "personal": true, "investigation": true}
+	if !validTypes[defaultType] {
+		return mcp.NewToolResultError("default_type must be one of: work, learning, personal, investigation"), nil
+	}
+
+	var result ImportResult
+	var warnings []string
+
+	switch format {
+	case "txt":
+		result, warnings = js.importFromPlainText(content, taskPrefix, defaultType)
+	case "markdown":
+		result, warnings = js.importFromMarkdown(content, taskPrefix, defaultType)
+	case "json":
+		result, warnings = js.importFromJSON(content, taskPrefix, defaultType)
+	case "csv":
+		result, warnings = js.importFromCSV(content, taskPrefix, defaultType)
+	}
+
+	result.Warnings = warnings
+	
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
 // Helper methods
 func (js *JournalService) saveTask(task *Task) error {
 	filePath := filepath.Join(js.dataDir, "tasks", task.ID+".json")
@@ -1310,4 +1368,420 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Import helper functions
+func (js *JournalService) importFromPlainText(content, taskPrefix, defaultType string) (ImportResult, []string) {
+	var result ImportResult
+	var warnings []string
+	
+	lines := strings.Split(content, "\n")
+	currentTaskID := fmt.Sprintf("%s-%d", taskPrefix, time.Now().Unix())
+	currentTask := &Task{
+		ID:      currentTaskID,
+		Title:   "Imported from plain text",
+		Type:    defaultType,
+		Status:  "active",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Entries: []Entry{},
+	}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Try to parse date/time patterns
+		timestamp := time.Now()
+		content := line
+		
+		// Simple date pattern detection (YYYY-MM-DD or MM/DD/YYYY)
+		if matched, parsedTime := js.extractTimestamp(line); matched {
+			timestamp = parsedTime
+			// Remove timestamp from content
+			content = strings.TrimSpace(strings.Replace(line, parsedTime.Format("2006-01-02"), "", 1))
+			content = strings.TrimSpace(strings.Replace(content, parsedTime.Format("01/02/2006"), "", 1))
+		}
+		
+		if content != "" {
+			entry := Entry{
+				ID:        generateEntryID(),
+				Timestamp: timestamp,
+				Content:   content,
+				Type:      "imported",
+			}
+			
+			currentTask.Entries = append(currentTask.Entries, entry)
+			result.EntriesAdded++
+		}
+	}
+	
+	if len(currentTask.Entries) > 0 {
+		if err := js.saveTask(currentTask); err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to save task: %v", err))
+		} else {
+			result.TasksCreated++
+		}
+	}
+	
+	result.Summary = fmt.Sprintf("Imported %d entries into %d task(s) from plain text", result.EntriesAdded, result.TasksCreated)
+	return result, warnings
+}
+
+func (js *JournalService) importFromMarkdown(content, taskPrefix, defaultType string) (ImportResult, []string) {
+	var result ImportResult
+	var warnings []string
+	
+	lines := strings.Split(content, "\n")
+	var currentTask *Task
+	
+	for lineNum, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check for headers (new tasks)
+		if strings.HasPrefix(line, "#") {
+			// Save previous task if exists
+			if currentTask != nil && len(currentTask.Entries) > 0 {
+				if err := js.saveTask(currentTask); err != nil {
+					warnings = append(warnings, fmt.Sprintf("Failed to save task %s: %v", currentTask.ID, err))
+				} else {
+					result.TasksCreated++
+				}
+			}
+			
+			// Create new task from header
+			title := strings.TrimSpace(strings.TrimLeft(line, "#"))
+			taskID := fmt.Sprintf("%s-%d-%d", taskPrefix, time.Now().Unix(), lineNum)
+			currentTask = &Task{
+				ID:      taskID,
+				Title:   title,
+				Type:    defaultType,
+				Status:  "active",
+				Created: time.Now(),
+				Updated: time.Now(),
+				Entries: []Entry{},
+			}
+		} else if currentTask != nil {
+			// Add content as entry
+			timestamp := time.Now()
+			if matched, parsedTime := js.extractTimestamp(line); matched {
+				timestamp = parsedTime
+			}
+			
+			entry := Entry{
+				ID:        generateEntryID(),
+				Timestamp: timestamp,
+				Content:   line,
+				Type:      "imported",
+			}
+			
+			currentTask.Entries = append(currentTask.Entries, entry)
+			result.EntriesAdded++
+		} else {
+			// No current task, create default one
+			taskID := fmt.Sprintf("%s-%d", taskPrefix, time.Now().Unix())
+			currentTask = &Task{
+				ID:      taskID,
+				Title:   "Imported from markdown",
+				Type:    defaultType,
+				Status:  "active",
+				Created: time.Now(),
+				Updated: time.Now(),
+				Entries: []Entry{},
+			}
+			
+			entry := Entry{
+				ID:        generateEntryID(),
+				Timestamp: time.Now(),
+				Content:   line,
+				Type:      "imported",
+			}
+			
+			currentTask.Entries = append(currentTask.Entries, entry)
+			result.EntriesAdded++
+		}
+	}
+	
+	// Save last task
+	if currentTask != nil && len(currentTask.Entries) > 0 {
+		if err := js.saveTask(currentTask); err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to save task %s: %v", currentTask.ID, err))
+		} else {
+			result.TasksCreated++
+		}
+	}
+	
+	result.Summary = fmt.Sprintf("Imported %d entries into %d task(s) from markdown", result.EntriesAdded, result.TasksCreated)
+	return result, warnings
+}
+
+func (js *JournalService) importFromJSON(content, taskPrefix, defaultType string) (ImportResult, []string) {
+	var result ImportResult
+	var warnings []string
+	
+	var validTypes = map[string]bool{"work": true, "learning": true, "personal": true, "investigation": true}
+	
+	// Try to parse as our format first
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &data); err != nil {
+		warnings = append(warnings, fmt.Sprintf("Invalid JSON format: %v", err))
+		result.Summary = "Failed to parse JSON"
+		return result, warnings
+	}
+	
+	// Check if it matches our export format
+	if tasks, ok := data["tasks"].([]interface{}); ok {
+		for _, taskData := range tasks {
+			taskMap, ok := taskData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			
+			// Parse task
+			task := &Task{
+				ID:      fmt.Sprintf("%s-%s", taskPrefix, taskMap["id"].(string)),
+				Title:   taskMap["title"].(string),
+				Type:    defaultType,
+				Status:  "active",
+				Created: time.Now(),
+				Updated: time.Now(),
+				Entries: []Entry{},
+			}
+			
+			if taskType, ok := taskMap["type"].(string); ok && validTypes[taskType] {
+				task.Type = taskType
+			}
+			
+			// Parse entries
+			if entries, ok := taskMap["entries"].([]interface{}); ok {
+				for _, entryData := range entries {
+					entryMap, ok := entryData.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					
+					timestamp := time.Now()
+					if timestampStr, ok := entryMap["timestamp"].(string); ok {
+						if parsedTime, err := time.Parse(time.RFC3339, timestampStr); err == nil {
+							timestamp = parsedTime
+						}
+					}
+					
+					entry := Entry{
+						ID:        generateEntryID(),
+						Timestamp: timestamp,
+						Content:   entryMap["content"].(string),
+						Type:      "imported",
+					}
+					
+					task.Entries = append(task.Entries, entry)
+					result.EntriesAdded++
+				}
+			}
+			
+			if len(task.Entries) > 0 {
+				if err := js.saveTask(task); err != nil {
+					warnings = append(warnings, fmt.Sprintf("Failed to save task %s: %v", task.ID, err))
+				} else {
+					result.TasksCreated++
+				}
+			}
+		}
+	} else {
+		// Generic JSON - treat as single task
+		taskID := fmt.Sprintf("%s-%d", taskPrefix, time.Now().Unix())
+		task := &Task{
+			ID:      taskID,
+			Title:   "Imported from JSON",
+			Type:    defaultType,
+			Status:  "active",
+			Created: time.Now(),
+			Updated: time.Now(),
+			Entries: []Entry{},
+		}
+		
+		entry := Entry{
+			ID:        generateEntryID(),
+			Timestamp: time.Now(),
+			Content:   content,
+			Type:      "imported",
+		}
+		
+		task.Entries = append(task.Entries, entry)
+		result.EntriesAdded++
+		
+		if err := js.saveTask(task); err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to save task: %v", err))
+		} else {
+			result.TasksCreated++
+		}
+	}
+	
+	result.Summary = fmt.Sprintf("Imported %d entries into %d task(s) from JSON", result.EntriesAdded, result.TasksCreated)
+	return result, warnings
+}
+
+func (js *JournalService) importFromCSV(content, taskPrefix, defaultType string) (ImportResult, []string) {
+	var result ImportResult
+	var warnings []string
+	
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 {
+		warnings = append(warnings, "CSV must have at least header and one data row")
+		result.Summary = "Invalid CSV format"
+		return result, warnings
+	}
+	
+	// Parse header
+	header := strings.Split(lines[0], ",")
+	for i := range header {
+		header[i] = strings.TrimSpace(strings.Trim(header[i], "\""))
+	}
+	
+	// Find column indices
+	titleCol, dateCol, contentCol := -1, -1, -1
+	for i, col := range header {
+		switch strings.ToLower(col) {
+		case "title", "task", "name":
+			titleCol = i
+		case "date", "timestamp", "time":
+			dateCol = i
+		case "content", "description", "notes", "entry":
+			contentCol = i
+		}
+	}
+	
+	if contentCol == -1 {
+		warnings = append(warnings, "Could not find content/description column")
+		result.Summary = "Invalid CSV format - missing content column"
+		return result, warnings
+	}
+	
+	taskMap := make(map[string]*Task)
+	
+	// Process data rows
+	for lineNum, line := range lines[1:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		
+		fields := js.parseCSVLine(line)
+		if len(fields) <= max(titleCol, max(dateCol, contentCol)) {
+			warnings = append(warnings, fmt.Sprintf("Row %d has insufficient columns", lineNum+2))
+			continue
+		}
+		
+		// Determine task ID
+		taskID := fmt.Sprintf("%s-%d", taskPrefix, time.Now().Unix())
+		if titleCol >= 0 && titleCol < len(fields) && strings.TrimSpace(fields[titleCol]) != "" {
+			taskTitle := strings.TrimSpace(strings.Trim(fields[titleCol], "\""))
+			taskID = fmt.Sprintf("%s-%s", taskPrefix, strings.ReplaceAll(taskTitle, " ", "-"))
+		}
+		
+		// Get or create task
+		if _, exists := taskMap[taskID]; !exists {
+			title := "Imported from CSV"
+			if titleCol >= 0 && titleCol < len(fields) {
+				title = strings.TrimSpace(strings.Trim(fields[titleCol], "\""))
+			}
+			
+			taskMap[taskID] = &Task{
+				ID:      taskID,
+				Title:   title,
+				Type:    defaultType,
+				Status:  "active",
+				Created: time.Now(),
+				Updated: time.Now(),
+				Entries: []Entry{},
+			}
+		}
+		
+		// Parse timestamp
+		timestamp := time.Now()
+		if dateCol >= 0 && dateCol < len(fields) {
+			dateStr := strings.TrimSpace(strings.Trim(fields[dateCol], "\""))
+			if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+				timestamp = parsed
+			} else if parsed, err := time.Parse("01/02/2006", dateStr); err == nil {
+				timestamp = parsed
+			}
+		}
+		
+		// Create entry
+		content := strings.TrimSpace(strings.Trim(fields[contentCol], "\""))
+		if content != "" {
+			entry := Entry{
+				ID:        generateEntryID(),
+				Timestamp: timestamp,
+				Content:   content,
+				Type:      "imported",
+			}
+			
+			taskMap[taskID].Entries = append(taskMap[taskID].Entries, entry)
+			result.EntriesAdded++
+		}
+	}
+	
+	// Save all tasks
+	for _, task := range taskMap {
+		if len(task.Entries) > 0 {
+			if err := js.saveTask(task); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Failed to save task %s: %v", task.ID, err))
+			} else {
+				result.TasksCreated++
+			}
+		}
+	}
+	
+	result.Summary = fmt.Sprintf("Imported %d entries into %d task(s) from CSV", result.EntriesAdded, result.TasksCreated)
+	return result, warnings
+}
+
+func (js *JournalService) extractTimestamp(text string) (bool, time.Time) {
+	// Try common date formats
+	formats := []string{
+		"2006-01-02",
+		"01/02/2006",
+		"1/2/2006",
+		"2006-01-02 15:04",
+		"01/02/2006 15:04",
+	}
+	
+	for _, format := range formats {
+		if timestamp, err := time.Parse(format, text); err == nil {
+			return true, timestamp
+		}
+	}
+	
+	return false, time.Time{}
+}
+
+func (js *JournalService) parseCSVLine(line string) []string {
+	var fields []string
+	var current strings.Builder
+	inQuotes := false
+	
+	for _, char := range line {
+		switch char {
+		case '"':
+			inQuotes = !inQuotes
+		case ',':
+			if !inQuotes {
+				fields = append(fields, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(char)
+			}
+		default:
+			current.WriteRune(char)
+		}
+	}
+	
+	fields = append(fields, current.String())
+	return fields
 }

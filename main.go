@@ -193,4 +193,23 @@ func registerTools(s *server.MCPServer, js *JournalService) {
 			mcp.Description("Filter by task type: work, learning, personal, investigation"),
 		),
 	), js.ExportData)
+
+	// Import and Analytics Tools
+	s.AddTool(mcp.NewTool("import_data",
+		mcp.WithDescription("Import existing diary/journal data from various formats"),
+		mcp.WithString("content",
+			mcp.Required(),
+			mcp.Description("File content to import"),
+		),
+		mcp.WithString("format",
+			mcp.Required(),
+			mcp.Description("Input format: txt, markdown, json, csv"),
+		),
+		mcp.WithString("task_prefix",
+			mcp.Description("Optional prefix for auto-generated task IDs (default: 'IMPORT')"),
+		),
+		mcp.WithString("default_type",
+			mcp.Description("Default task type for imported entries: work, learning, personal, investigation (default: 'personal')"),
+		),
+	), js.ImportData)
 }
