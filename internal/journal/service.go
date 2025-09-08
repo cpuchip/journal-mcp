@@ -1,9 +1,11 @@
 package journal
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 // NewService creates a new journal service instance
@@ -200,7 +203,89 @@ func (js *Service) CreateTaskFromGitHubIssue(ctx context.Context, request mcp.Ca
 }
 
 func (js *Service) CreateDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultText("CreateDataBackup stub - needs implementation"), nil
+	backupPath := request.GetString("backup_path", "")
+	includeConfig := request.GetString("include_config", "true") == "true"
+	compressionLevel := request.GetString("compression", "default")
+
+	if backupPath == "" {
+		// Generate default backup path
+		timestamp := time.Now().Format("2006-01-02_15-04-05")
+		backupPath = filepath.Join(js.dataDir, "backups", fmt.Sprintf("journal-backup-%s.zip", timestamp))
+	}
+
+	// Ensure backup directory exists
+	backupDir := filepath.Dir(backupPath)
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to create backup directory: %v", err)), nil
+	}
+
+	// Create ZIP file
+	zipFile, err := os.Create(backupPath)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to create backup file: %v", err)), nil
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	var filesBackup int
+	var totalSize int64
+
+	// Backup tasks
+	tasksDir := filepath.Join(js.dataDir, "tasks")
+	if err := js.addDirectoryToZip(zipWriter, tasksDir, "tasks", &filesBackup, &totalSize); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup tasks: %v", err)), nil
+	}
+
+	// Backup daily logs
+	dailyDir := filepath.Join(js.dataDir, "daily")
+	if err := js.addDirectoryToZip(zipWriter, dailyDir, "daily", &filesBackup, &totalSize); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup daily logs: %v", err)), nil
+	}
+
+	// Backup weekly logs
+	weeklyDir := filepath.Join(js.dataDir, "weekly")
+	if err := js.addDirectoryToZip(zipWriter, weeklyDir, "weekly", &filesBackup, &totalSize); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup weekly logs: %v", err)), nil
+	}
+
+	// Backup one-on-ones
+	oneOnOneDir := filepath.Join(js.dataDir, "one-on-ones")
+	if err := js.addDirectoryToZip(zipWriter, oneOnOneDir, "one-on-ones", &filesBackup, &totalSize); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup one-on-ones: %v", err)), nil
+	}
+
+	// Backup configuration if requested
+	if includeConfig {
+		configPath := filepath.Join(js.dataDir, "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			if err := js.addFileToZip(zipWriter, configPath, "config.yaml", &totalSize); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to backup config: %v", err)), nil
+			}
+			filesBackup++
+		}
+	}
+
+	// Close zip writer to finalize
+	zipWriter.Close()
+	
+	// Get final file size
+	fileInfo, err := os.Stat(backupPath)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to get backup file info: %v", err)), nil
+	}
+	
+	result := BackupResult{
+		BackupPath:  backupPath,
+		Size:        fileInfo.Size(),
+		FilesBackup: filesBackup,
+		CreatedAt:   time.Now(),
+		Summary:     fmt.Sprintf("Backup completed successfully: %d files (%d bytes)", filesBackup, fileInfo.Size()),
+	}
+
+	response, _ := json.Marshal(result)
+	return mcp.NewToolResultText(string(response)), nil
 }
 
 func (js *Service) RestoreDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
