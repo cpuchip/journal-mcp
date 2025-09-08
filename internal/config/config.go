@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"archive/zip"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
+	"github.com/cpuchip/journal-mcp/internal/journal"
 )
 
 // Configuration represents the journal configuration
@@ -63,7 +64,7 @@ type RestoreResult struct {
 }
 
 // CreateDataBackup creates a backup of all journal data
-func (js *JournalService) CreateDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (js *journal.Service) CreateDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	backupPath := request.GetString("backup_path", "")
 	includeConfig := request.GetString("include_config", "true") == "true"
 	compressionLevel := request.GetString("compression", "default")
@@ -167,7 +168,7 @@ func (js *JournalService) CreateDataBackup(ctx context.Context, request mcp.Call
 }
 
 // RestoreDataBackup restores journal data from a backup file
-func (js *JournalService) RestoreDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (js *journal.Service) RestoreDataBackup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	backupPath := request.GetString("backup_path", "")
 	if backupPath == "" {
 		return mcp.NewToolResultError("backup_path is required"), nil
@@ -236,7 +237,7 @@ func (js *JournalService) RestoreDataBackup(ctx context.Context, request mcp.Cal
 }
 
 // GetConfiguration retrieves the current configuration
-func (js *JournalService) GetConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (js *journal.Service) GetConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	configPath := filepath.Join(js.dataDir, "config.yaml")
 	
 	var config Configuration
@@ -266,7 +267,7 @@ func (js *JournalService) GetConfiguration(ctx context.Context, request mcp.Call
 }
 
 // UpdateConfiguration updates the journal configuration
-func (js *JournalService) UpdateConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (js *journal.Service) UpdateConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	configData := request.GetString("config", "")
 	if configData == "" {
 		return mcp.NewToolResultError("config data is required"), nil
@@ -304,7 +305,7 @@ func (js *JournalService) UpdateConfiguration(ctx context.Context, request mcp.C
 }
 
 // MigrateData performs data migration (future SQLite integration preparation)
-func (js *JournalService) MigrateData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (js *journal.Service) MigrateData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	migrationVersion := request.GetString("target_version", "current")
 	dryRun := request.GetString("dry_run", "false") == "true"
 
@@ -324,7 +325,7 @@ func (js *JournalService) MigrateData(ctx context.Context, request mcp.CallToolR
 
 // Helper methods for backup/restore
 
-func (js *JournalService) addDirectoryToZip(zipWriter *zip.Writer, sourceDir, zipDir string, fileCount *int, totalSize *int64) error {
+func (js *journal.Service) addDirectoryToZip(zipWriter *zip.Writer, sourceDir, zipDir string, fileCount *int, totalSize *int64) error {
 	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
 		return nil // Directory doesn't exist, skip
 	}
@@ -349,7 +350,7 @@ func (js *JournalService) addDirectoryToZip(zipWriter *zip.Writer, sourceDir, zi
 	})
 }
 
-func (js *JournalService) addFileToZip(zipWriter *zip.Writer, filePath, zipPath string, totalSize *int64) error {
+func (js *journal.Service) addFileToZip(zipWriter *zip.Writer, filePath, zipPath string, totalSize *int64) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -370,7 +371,7 @@ func (js *JournalService) addFileToZip(zipWriter *zip.Writer, filePath, zipPath 
 	return nil
 }
 
-func (js *JournalService) extractFileFromZip(file *zip.File, result *RestoreResult) error {
+func (js *journal.Service) extractFileFromZip(file *zip.File, result *RestoreResult) error {
 	reader, err := file.Open()
 	if err != nil {
 		return err
@@ -395,7 +396,7 @@ func (js *JournalService) extractFileFromZip(file *zip.File, result *RestoreResu
 	return err
 }
 
-func (js *JournalService) validateConfiguration(config *Configuration) error {
+func (js *journal.Service) validateConfiguration(config *Configuration) error {
 	// Validate web configuration
 	if config.Web.Port < 1 || config.Web.Port > 65535 {
 		return fmt.Errorf("invalid web port: %d", config.Web.Port)
