@@ -1,4 +1,4 @@
-package main
+package servers
 
 import (
 	"context"
@@ -126,7 +126,7 @@ func (ws *WebServer) setupRoutes(router *mux.Router) {
 
 func (ws *WebServer) handleGetTasks(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	
+
 	// Convert query parameters to MCP request format
 	args := make(map[string]interface{})
 	if status := query.Get("status"); status != "" {
@@ -266,7 +266,7 @@ func (ws *WebServer) handleUpdateTaskStatus(w http.ResponseWriter, r *http.Reque
 
 func (ws *WebServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	
+
 	args := map[string]interface{}{
 		"query": query.Get("q"),
 	}
@@ -309,7 +309,7 @@ func (ws *WebServer) handleAnalyticsOverview(w http.ResponseWriter, r *http.Requ
 
 func (ws *WebServer) handleAnalyticsReport(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	
+
 	args := map[string]interface{}{}
 	if reportType := query.Get("type"); reportType != "" {
 		args["report_type"] = reportType
@@ -335,7 +335,7 @@ func (ws *WebServer) handleAnalyticsReport(w http.ResponseWriter, r *http.Reques
 
 func (ws *WebServer) handleExport(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	
+
 	args := map[string]interface{}{
 		"format": query.Get("format"),
 	}
@@ -417,7 +417,7 @@ func (ws *WebServer) handleGetWeeklyLog(w http.ResponseWriter, r *http.Request) 
 
 func (ws *WebServer) handleGetOneOnOnes(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	
+
 	args := map[string]interface{}{}
 	if limit := query.Get("limit"); limit != "" {
 		args["limit"] = limit
@@ -575,8 +575,8 @@ func (ws *WebServer) handleAPIDocs(w http.ResponseWriter, r *http.Request) {
 				"get":  map[string]interface{}{"summary": "Get all tasks"},
 				"post": map[string]interface{}{"summary": "Create a new task"},
 			},
-			"/tasks/{id}": map[string]interface{}{"get": map[string]interface{}{"summary": "Get task by ID"}},
-			"/search":     map[string]interface{}{"get": map[string]interface{}{"summary": "Search journal entries"}},
+			"/tasks/{id}":         map[string]interface{}{"get": map[string]interface{}{"summary": "Get task by ID"}},
+			"/search":             map[string]interface{}{"get": map[string]interface{}{"summary": "Search journal entries"}},
 			"/analytics/overview": map[string]interface{}{"get": map[string]interface{}{"summary": "Get analytics overview"}},
 		},
 	}
@@ -601,7 +601,7 @@ func (ws *WebServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (ws *WebServer) writeJSONResponse(w http.ResponseWriter, result *mcp.CallToolResult) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if result.IsError {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{

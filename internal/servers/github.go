@@ -1,4 +1,4 @@
-package main
+package servers
 
 import (
 	"context"
@@ -31,16 +31,16 @@ type GitHubSyncConfig struct {
 
 // GitHubIssueMetadata stores additional GitHub-specific data
 type GitHubIssueMetadata struct {
-	IssueNumber int                        `json:"issue_number"`
-	Repository  string                     `json:"repository"`
-	State       string                     `json:"state"`
-	Labels      []string                   `json:"labels"`
-	Assignees   []string                   `json:"assignees"`
-	Milestone   string                     `json:"milestone,omitempty"`
-	CreatedAt   time.Time                  `json:"created_at"`
-	UpdatedAt   time.Time                  `json:"updated_at"`
-	Comments    []GitHubIssueComment       `json:"comments,omitempty"`
-	Events      []GitHubIssueEvent         `json:"events,omitempty"`
+	IssueNumber int                  `json:"issue_number"`
+	Repository  string               `json:"repository"`
+	State       string               `json:"state"`
+	Labels      []string             `json:"labels"`
+	Assignees   []string             `json:"assignees"`
+	Milestone   string               `json:"milestone,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
+	Comments    []GitHubIssueComment `json:"comments,omitempty"`
+	Events      []GitHubIssueEvent   `json:"events,omitempty"`
 }
 
 // GitHubIssueComment represents a comment on a GitHub issue
@@ -63,11 +63,11 @@ type GitHubIssueEvent struct {
 
 // GitHubSyncResult represents the result of a GitHub sync operation
 type GitHubSyncResult struct {
-	TasksCreated    int      `json:"tasks_created"`
-	TasksUpdated    int      `json:"tasks_updated"`
-	IssuesProcessed int      `json:"issues_processed"`
-	Errors          []string `json:"errors,omitempty"`
-	Summary         string   `json:"summary"`
+	TasksCreated    int       `json:"tasks_created"`
+	TasksUpdated    int       `json:"tasks_updated"`
+	IssuesProcessed int       `json:"issues_processed"`
+	Errors          []string  `json:"errors,omitempty"`
+	Summary         string    `json:"summary"`
 	LastSyncTime    time.Time `json:"last_sync_time"`
 }
 
@@ -78,7 +78,7 @@ func NewGitHubService(token string) *GitHubService {
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(ctx, ts)
-	
+
 	return &GitHubService{
 		client: github.NewClient(tc),
 		token:  token,
@@ -102,7 +102,7 @@ func (js *JournalService) SyncWithGitHub(ctx context.Context, request mcp.CallTo
 	updateExisting := request.GetString("update_existing", "true") == "true"
 
 	githubService := NewGitHubService(token)
-	
+
 	syncResult := GitHubSyncResult{
 		LastSyncTime: time.Now(),
 		Errors:       []string{},
@@ -118,7 +118,7 @@ func (js *JournalService) SyncWithGitHub(ctx context.Context, request mcp.CallTo
 
 	for _, issue := range issues {
 		taskID := generateTaskIDFromIssue(issue)
-		
+
 		// Check if task already exists
 		existingTask, err := js.loadTask(taskID)
 		if err != nil {
@@ -146,7 +146,7 @@ func (js *JournalService) SyncWithGitHub(ctx context.Context, request mcp.CallTo
 		}
 	}
 
-	syncResult.Summary = fmt.Sprintf("Processed %d issues: %d tasks created, %d tasks updated", 
+	syncResult.Summary = fmt.Sprintf("Processed %d issues: %d tasks created, %d tasks updated",
 		syncResult.IssuesProcessed, syncResult.TasksCreated, syncResult.TasksUpdated)
 
 	result, _ := json.Marshal(syncResult)
@@ -162,7 +162,7 @@ func (js *JournalService) PullIssueUpdates(ctx context.Context, request mcp.Call
 
 	taskID := request.GetString("task_id", "")
 	sinceStr := request.GetString("since", "")
-	
+
 	var since *time.Time
 	if sinceStr != "" {
 		sinceTime, err := time.Parse("2006-01-02T15:04:05Z", sinceStr)
@@ -173,7 +173,7 @@ func (js *JournalService) PullIssueUpdates(ctx context.Context, request mcp.Call
 	}
 
 	githubService := NewGitHubService(token)
-	
+
 	// Get all tasks with GitHub issues or specific task
 	var tasks []*Task
 	if taskID != "" {
@@ -250,11 +250,11 @@ func (js *JournalService) PullIssueUpdates(ctx context.Context, request mcp.Call
 	}
 
 	result := map[string]interface{}{
-		"tasks_updated":   updateCount,
-		"total_tasks":     len(tasks),
-		"errors":          errors,
-		"summary":         fmt.Sprintf("Updated %d tasks with latest GitHub activity", updateCount),
-		"last_sync_time":  time.Now(),
+		"tasks_updated":  updateCount,
+		"total_tasks":    len(tasks),
+		"errors":         errors,
+		"summary":        fmt.Sprintf("Updated %d tasks with latest GitHub activity", updateCount),
+		"last_sync_time": time.Now(),
 	}
 
 	resultJSON, _ := json.Marshal(result)
@@ -277,7 +277,7 @@ func (js *JournalService) CreateTaskFromGitHubIssue(ctx context.Context, request
 	priority := request.GetString("priority", "medium")
 
 	githubService := NewGitHubService(token)
-	
+
 	owner, repo, issueNum, err := parseGitHubURL(issueURL)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid GitHub URL: %v", err)), nil
@@ -298,12 +298,12 @@ func (js *JournalService) CreateTaskFromGitHubIssue(ctx context.Context, request
 	}
 
 	result := map[string]interface{}{
-		"task_id":     task.ID,
-		"title":       task.Title,
-		"status":      task.Status,
-		"issue_url":   task.IssueURL,
-		"created_at":  task.Created,
-		"summary":     fmt.Sprintf("Created task %s from GitHub issue %s", task.ID, issueURL),
+		"task_id":    task.ID,
+		"title":      task.Title,
+		"status":     task.Status,
+		"issue_url":  task.IssueURL,
+		"created_at": task.Created,
+		"summary":    fmt.Sprintf("Created task %s from GitHub issue %s", task.ID, issueURL),
 	}
 
 	resultJSON, _ := json.Marshal(result)
@@ -445,7 +445,7 @@ func (gs *GitHubService) getIssueUpdates(ctx context.Context, owner, repo string
 
 func (js *JournalService) createTaskFromGitHubIssue(issue *github.Issue) *Task {
 	taskID := generateTaskIDFromIssue(issue)
-	
+
 	// Extract labels
 	var labels []string
 	for _, label := range issue.Labels {
@@ -500,7 +500,7 @@ func (js *JournalService) updateTaskFromGitHubIssue(task *Task, issue *github.Is
 	if task.Status != newStatus {
 		task.Status = newStatus
 		task.Updated = time.Now()
-		
+
 		// Add status change entry
 		task.Entries = append(task.Entries, Entry{
 			ID:        generateEntryID(),
@@ -523,7 +523,7 @@ func (js *JournalService) updateTaskFromGitHubIssue(task *Task, issue *github.Is
 	for _, label := range issue.Labels {
 		newLabels = append(newLabels, label.GetName())
 	}
-	
+
 	if !equalStringSlices(task.Tags, newLabels) {
 		task.Tags = newLabels
 		task.Updated = time.Now()
@@ -575,20 +575,20 @@ func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	
+
 	sortedA := make([]string, len(a))
 	sortedB := make([]string, len(b))
 	copy(sortedA, a)
 	copy(sortedB, b)
-	
+
 	sort.Strings(sortedA)
 	sort.Strings(sortedB)
-	
+
 	for i := range sortedA {
 		if sortedA[i] != sortedB[i] {
 			return false
 		}
 	}
-	
+
 	return true
 }

@@ -1,5 +1,5 @@
 # Build artifacts
-journal-mcp
+/journal-mcp
 journal-mcp.exe
 *.exe
 vendor/

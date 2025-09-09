@@ -1,4 +1,4 @@
-package main
+package servers
 
 import (
 	"context"
@@ -12,31 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Test helper to create a temporary journal service
-func createTestJournalService(t *testing.T) (*JournalService, string) {
-	// Create temporary directory
-	tempDir := t.TempDir()
-	
-	// Create subdirectories
-	os.MkdirAll(filepath.Join(tempDir, "tasks"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "daily"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "weekly"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "one-on-ones"), 0755)
-	
-	return &JournalService{dataDir: tempDir}, tempDir
-}
-
-// Mock MCP request helper
-func createMockRequest(args map[string]interface{}) mcp.CallToolRequest {
-	return mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Arguments: args,
-		},
-	}
-}
-
 func TestCreateTask(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -87,7 +64,7 @@ func TestCreateTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.CreateTask(ctx, req)
 
 			if tt.expectError {
@@ -111,14 +88,14 @@ func TestCreateTask(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				// Verify task was created
 				taskID := tt.args["id"].(string)
 				task, err := js.loadTask(taskID)
 				if err != nil {
 					t.Fatalf("Failed to load created task: %v", err)
 				}
-				
+
 				if task.ID != taskID {
 					t.Errorf("Expected task ID %s, got %s", taskID, task.ID)
 				}
@@ -140,11 +117,11 @@ func TestCreateTask(t *testing.T) {
 }
 
 func TestAddTaskEntry(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// First create a task
-	createReq := createMockRequest(map[string]interface{}{
+	createReq := CreateMockRequest(map[string]interface{}{
 		"id":    "TEST-ENTRY",
 		"title": "Task for entry testing",
 		"type":  "work",
@@ -197,7 +174,7 @@ func TestAddTaskEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.AddTaskEntry(ctx, req)
 
 			if tt.expectError {
@@ -218,17 +195,17 @@ func TestAddTaskEntry(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				// Verify entry was added
 				task, err := js.loadTask(tt.args["task_id"].(string))
 				if err != nil {
 					t.Fatalf("Failed to load task: %v", err)
 				}
-				
+
 				if len(task.Entries) != 2 { // Creation entry + new entry
 					t.Errorf("Expected 2 entries, got %d", len(task.Entries))
 				}
-				
+
 				lastEntry := task.Entries[len(task.Entries)-1]
 				if lastEntry.Content != tt.args["content"].(string) {
 					t.Errorf("Expected content '%s', got '%s'", tt.args["content"], lastEntry.Content)
@@ -239,11 +216,11 @@ func TestAddTaskEntry(t *testing.T) {
 }
 
 func TestUpdateTaskStatus(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create a test task
-	createReq := createMockRequest(map[string]interface{}{
+	createReq := CreateMockRequest(map[string]interface{}{
 		"id":    "TEST-STATUS",
 		"title": "Task for status testing",
 		"type":  "work",
@@ -297,7 +274,7 @@ func TestUpdateTaskStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.UpdateTaskStatus(ctx, req)
 
 			if tt.expectError {
@@ -318,13 +295,13 @@ func TestUpdateTaskStatus(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				// Verify status was updated
 				task, err := js.loadTask(tt.args["task_id"].(string))
 				if err != nil {
 					t.Fatalf("Failed to load task: %v", err)
 				}
-				
+
 				if task.Status != tt.args["status"].(string) {
 					t.Errorf("Expected status '%s', got '%s'", tt.args["status"], task.Status)
 				}
@@ -334,7 +311,7 @@ func TestUpdateTaskStatus(t *testing.T) {
 }
 
 func TestGetDailyLog(t *testing.T) {
-	js, tempDir := createTestJournalService(t)
+	js, tempDir := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create sample daily activity
@@ -351,7 +328,7 @@ func TestGetDailyLog(t *testing.T) {
 			},
 		},
 	}
-	
+
 	dailyPath := filepath.Join(tempDir, "daily", "2025-01-01.json")
 	data, _ := json.MarshalIndent(dailyActivity, "", "  ")
 	os.WriteFile(dailyPath, data, 0644)
@@ -377,8 +354,8 @@ func TestGetDailyLog(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "missing date",
-			args: map[string]interface{}{},
+			name:        "missing date",
+			args:        map[string]interface{}{},
 			expectError: true,
 			errorMsg:    "date is required",
 		},
@@ -394,7 +371,7 @@ func TestGetDailyLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.GetDailyLog(ctx, req)
 
 			if tt.expectError {
@@ -415,7 +392,7 @@ func TestGetDailyLog(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				expectedDate := tt.args["date"].(string)
 				if !contains(content.Text, "Daily Log: "+expectedDate) {
@@ -427,11 +404,11 @@ func TestGetDailyLog(t *testing.T) {
 }
 
 func TestSearchEntries(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create a test task with entries
-	createReq := createMockRequest(map[string]interface{}{
+	createReq := CreateMockRequest(map[string]interface{}{
 		"id":    "SEARCH-TEST",
 		"title": "Search testing task",
 		"type":  "work",
@@ -442,7 +419,7 @@ func TestSearchEntries(t *testing.T) {
 	}
 
 	// Add an entry
-	entryReq := createMockRequest(map[string]interface{}{
+	entryReq := CreateMockRequest(map[string]interface{}{
 		"task_id": "SEARCH-TEST",
 		"content": "This is searchable content with keyword important",
 	})
@@ -452,11 +429,11 @@ func TestSearchEntries(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		args         map[string]interface{}
-		expectError  bool
-		expectMatch  bool
-		errorMsg     string
+		name        string
+		args        map[string]interface{}
+		expectError bool
+		expectMatch bool
+		errorMsg    string
 	}{
 		{
 			name: "search with matching query",
@@ -475,8 +452,8 @@ func TestSearchEntries(t *testing.T) {
 			expectMatch: false,
 		},
 		{
-			name: "missing query",
-			args: map[string]interface{}{},
+			name:        "missing query",
+			args:        map[string]interface{}{},
 			expectError: true,
 			errorMsg:    "query is required",
 		},
@@ -484,7 +461,7 @@ func TestSearchEntries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.SearchEntries(ctx, req)
 
 			if tt.expectError {
@@ -505,7 +482,7 @@ func TestSearchEntries(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				if tt.expectMatch {
 					if !contains(content.Text, "SEARCH-TEST") {
@@ -522,11 +499,11 @@ func TestSearchEntries(t *testing.T) {
 }
 
 func TestExportData(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create a test task
-	createReq := createMockRequest(map[string]interface{}{
+	createReq := CreateMockRequest(map[string]interface{}{
 		"id":    "EXPORT-TEST",
 		"title": "Export testing task",
 		"type":  "work",
@@ -572,8 +549,8 @@ func TestExportData(t *testing.T) {
 			errorMsg:    "Invalid format",
 		},
 		{
-			name: "missing format",
-			args: map[string]interface{}{},
+			name:        "missing format",
+			args:        map[string]interface{}{},
 			expectError: true,
 			errorMsg:    "format is required",
 		},
@@ -581,7 +558,7 @@ func TestExportData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.ExportData(ctx, req)
 
 			if tt.expectError {
@@ -602,10 +579,10 @@ func TestExportData(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				format := tt.args["format"].(string)
-				
+
 				switch format {
 				case "json":
 					if !contains(content.Text, "\"tasks\"") {
@@ -627,8 +604,8 @@ func TestExportData(t *testing.T) {
 
 // Helper function
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && s[:len(substr)] == substr) || 
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) && s[:len(substr)] == substr) ||
 		(len(s) > len(substr) && s[len(s)-len(substr):] == substr) ||
 		containsSubstring(s, substr))
 }
@@ -643,7 +620,7 @@ func containsSubstring(s, substr string) bool {
 }
 
 func TestCreateOneOnOne(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -683,7 +660,7 @@ func TestCreateOneOnOne(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.CreateOneOnOne(ctx, req)
 
 			if tt.expectError {
@@ -704,7 +681,7 @@ func TestCreateOneOnOne(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				expectedDate := tt.args["date"].(string)
 				if !contains(content.Text, expectedDate) {
@@ -716,7 +693,7 @@ func TestCreateOneOnOne(t *testing.T) {
 }
 
 func TestGetOneOnOneHistory(t *testing.T) {
-	js, tempDir := createTestJournalService(t)
+	js, tempDir := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create a sample one-on-one file
@@ -727,7 +704,7 @@ func TestGetOneOnOneHistory(t *testing.T) {
 		Notes:    "Productive meeting",
 		Created:  time.Date(2025, 1, 1, 16, 0, 0, 0, time.UTC),
 	}
-	
+
 	oneOnOnePath := filepath.Join(tempDir, "one-on-ones", "2025-01-01.json")
 	data, _ := json.MarshalIndent(oneOnOne, "", "  ")
 	os.WriteFile(oneOnOnePath, data, 0644)
@@ -750,7 +727,7 @@ func TestGetOneOnOneHistory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.GetOneOnOneHistory(ctx, req)
 
 			if err != nil {
@@ -759,7 +736,7 @@ func TestGetOneOnOneHistory(t *testing.T) {
 			if result.IsError {
 				t.Fatal("Unexpected error result")
 			}
-			
+
 			content := result.Content[0].(mcp.TextContent)
 			if !contains(content.Text, "One-on-One History") {
 				t.Error("Expected one-on-one history header")
@@ -772,7 +749,7 @@ func TestGetOneOnOneHistory(t *testing.T) {
 }
 
 func TestGetWeeklyLog(t *testing.T) {
-	js, tempDir := createTestJournalService(t)
+	js, tempDir := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create a sample task and daily activity
@@ -792,7 +769,7 @@ func TestGetWeeklyLog(t *testing.T) {
 			},
 		},
 	}
-	
+
 	taskPath := filepath.Join(tempDir, "tasks", "WEEKLY-TEST.json")
 	taskData, _ := json.MarshalIndent(task, "", "  ")
 	os.WriteFile(taskPath, taskData, 0644)
@@ -811,8 +788,8 @@ func TestGetWeeklyLog(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "missing week_start",
-			args: map[string]interface{}{},
+			name:        "missing week_start",
+			args:        map[string]interface{}{},
 			expectError: true,
 			errorMsg:    "week_start is required",
 		},
@@ -828,7 +805,7 @@ func TestGetWeeklyLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.GetWeeklyLog(ctx, req)
 
 			if tt.expectError {
@@ -849,7 +826,7 @@ func TestGetWeeklyLog(t *testing.T) {
 				if result.IsError {
 					t.Fatal("Unexpected error result")
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				if !contains(content.Text, "Weekly Log:") {
 					t.Error("Expected weekly log header")
@@ -864,7 +841,7 @@ func TestGetWeeklyLog(t *testing.T) {
 
 // TestDateFiltering tests the date filtering functionality in list_tasks
 func TestDateFiltering(t *testing.T) {
-	js, tempDir := createTestJournalService(t)
+	js, tempDir := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create test tasks with different dates
@@ -906,10 +883,10 @@ func TestDateFiltering(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		args           map[string]interface{}
-		expectedTasks  []string // Task IDs that should be included
-		expectError    bool
+		name          string
+		args          map[string]interface{}
+		expectedTasks []string // Task IDs that should be included
+		expectError   bool
 	}{
 		{
 			name: "filter from date_from only",
@@ -934,8 +911,8 @@ func TestDateFiltering(t *testing.T) {
 			expectedTasks: []string{"TASK-MIDDLE"}, // Only middle task
 		},
 		{
-			name: "no date filters",
-			args: map[string]interface{}{},
+			name:          "no date filters",
+			args:          map[string]interface{}{},
 			expectedTasks: []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}, // All tasks
 		},
 		{
@@ -956,7 +933,7 @@ func TestDateFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.ListTasks(ctx, req)
 
 			if tt.expectError {
@@ -974,17 +951,17 @@ func TestDateFiltering(t *testing.T) {
 					content := result.Content[0].(mcp.TextContent)
 					t.Fatalf("Unexpected error result: %s", content.Text)
 				}
-				
+
 				content := result.Content[0].(mcp.TextContent)
 				resultText := content.Text
-				
+
 				// Check that expected tasks are present
 				for _, expectedTask := range tt.expectedTasks {
 					if !contains(resultText, expectedTask) {
 						t.Errorf("Expected task '%s' to be in results, but it wasn't found", expectedTask)
 					}
 				}
-				
+
 				// Check that only expected tasks are present
 				allTaskIDs := []string{"TASK-OLD", "TASK-MIDDLE", "TASK-NEW"}
 				for _, taskID := range allTaskIDs {
@@ -1003,9 +980,10 @@ func TestDateFiltering(t *testing.T) {
 		})
 	}
 }
+
 // TestPagination tests the pagination functionality in list_tasks
 func TestPagination(t *testing.T) {
-	js, tempDir := createTestJournalService(t)
+	js, tempDir := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create 5 test tasks
@@ -1021,7 +999,7 @@ func TestPagination(t *testing.T) {
 			Entries: []Entry{},
 		}
 		tasks = append(tasks, task)
-		
+
 		// Save task
 		taskPath := filepath.Join(tempDir, "tasks", task.ID+".json")
 		taskData, _ := json.MarshalIndent(task, "", "  ")
@@ -1029,14 +1007,14 @@ func TestPagination(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		args           map[string]interface{}
-		expectedCount  int
-		shouldContain  []string
+		name          string
+		args          map[string]interface{}
+		expectedCount int
+		shouldContain []string
 	}{
 		{
-			name: "default pagination (no limit/offset)",
-			args: map[string]interface{}{},
+			name:          "default pagination (no limit/offset)",
+			args:          map[string]interface{}{},
 			expectedCount: 5,
 			shouldContain: []string{"TASK-1", "TASK-2", "TASK-3", "TASK-4", "TASK-5"},
 		},
@@ -1077,7 +1055,7 @@ func TestPagination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := CreateMockRequest(tt.args)
 			result, err := js.ListTasks(ctx, req)
 
 			if err != nil {
@@ -1087,25 +1065,25 @@ func TestPagination(t *testing.T) {
 				content := result.Content[0].(mcp.TextContent)
 				t.Fatalf("Unexpected error result: %s", content.Text)
 			}
-			
+
 			content := result.Content[0].(mcp.TextContent)
 			resultText := content.Text
-			
+
 			// Check pagination info in header
 			if tt.expectedCount > 0 {
 				if !contains(resultText, fmt.Sprintf("of %d total", 5)) {
 					t.Errorf("Expected pagination header to show total of 5")
 				}
 			}
-			
+
 			// Check that expected tasks are present
 			for _, expectedTask := range tt.shouldContain {
 				if !contains(resultText, expectedTask) {
 					t.Errorf("Expected task '%s' to be in results, but it wasn't found", expectedTask)
 				}
 			}
-			
-			// Count actual task occurrences 
+
+			// Count actual task occurrences
 			actualCount := 0
 			for i := 1; i <= 5; i++ {
 				taskID := fmt.Sprintf("TASK-%d", i)
@@ -1113,7 +1091,7 @@ func TestPagination(t *testing.T) {
 					actualCount++
 				}
 			}
-			
+
 			if actualCount != tt.expectedCount {
 				t.Errorf("Expected %d tasks in results, got %d", tt.expectedCount, actualCount)
 			}
@@ -1122,18 +1100,18 @@ func TestPagination(t *testing.T) {
 }
 
 func TestImportData(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
-		name         string
-		content      string
-		format       string
-		taskPrefix   string
-		defaultType  string
-		expectError  bool
-		errorMsg     string
-		expectTasks  int
+		name          string
+		content       string
+		format        string
+		taskPrefix    string
+		defaultType   string
+		expectError   bool
+		errorMsg      string
+		expectTasks   int
 		expectEntries int
 	}{
 		{
@@ -1157,23 +1135,23 @@ func TestImportData(t *testing.T) {
 			expectEntries: 3,
 		},
 		{
-			name:        "csv import",
-			content:     "title,date,content\nTask 1,2024-01-01,First entry\nTask 2,2024-01-02,Second entry",
-			format:      "csv",
-			taskPrefix:  "CSV",
-			defaultType: "learning",
-			expectError: false,
-			expectTasks: 2,
+			name:          "csv import",
+			content:       "title,date,content\nTask 1,2024-01-01,First entry\nTask 2,2024-01-02,Second entry",
+			format:        "csv",
+			taskPrefix:    "CSV",
+			defaultType:   "learning",
+			expectError:   false,
+			expectTasks:   2,
 			expectEntries: 2,
 		},
 		{
-			name:        "json import",
-			content:     `{"tasks": [{"id": "test", "title": "Test Task", "entries": [{"content": "Test entry", "timestamp": "2024-01-01T12:00:00Z"}]}]}`,
-			format:      "json",
-			taskPrefix:  "JSON",
-			defaultType: "investigation",
-			expectError: false,
-			expectTasks: 1,
+			name:          "json import",
+			content:       `{"tasks": [{"id": "test", "title": "Test Task", "entries": [{"content": "Test entry", "timestamp": "2024-01-01T12:00:00Z"}]}]}`,
+			format:        "json",
+			taskPrefix:    "JSON",
+			defaultType:   "investigation",
+			expectError:   false,
+			expectTasks:   1,
 			expectEntries: 1,
 		},
 		{
@@ -1208,15 +1186,15 @@ func TestImportData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			args := map[string]interface{}{}
-			
+
 			if tt.content != "" {
 				args["content"] = tt.content
 			}
-			
+
 			if tt.format != "" {
 				args["format"] = tt.format
 			}
-			
+
 			if tt.taskPrefix != "" {
 				args["task_prefix"] = tt.taskPrefix
 			}
@@ -1224,8 +1202,8 @@ func TestImportData(t *testing.T) {
 				args["default_type"] = tt.defaultType
 			}
 
-			result, err := js.ImportData(ctx, createMockRequest(args))
-			
+			result, err := js.ImportData(ctx, CreateMockRequest(args))
+
 			if tt.expectError {
 				if err != nil {
 					t.Errorf("Expected no error, got: %v", err)
@@ -1284,7 +1262,7 @@ func TestImportData(t *testing.T) {
 }
 
 func TestImportFormats(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	t.Run("plain text with dates", func(t *testing.T) {
@@ -1300,7 +1278,7 @@ func TestImportFormats(t *testing.T) {
 			"default_type": "work",
 		}
 
-		result, err := js.ImportData(ctx, createMockRequest(args))
+		result, err := js.ImportData(ctx, CreateMockRequest(args))
 		if err != nil {
 			t.Fatalf("Import failed: %v", err)
 		}
@@ -1337,7 +1315,7 @@ func TestImportFormats(t *testing.T) {
 			"default_type": "work",
 		}
 
-		result, err := js.ImportData(ctx, createMockRequest(args))
+		result, err := js.ImportData(ctx, CreateMockRequest(args))
 		if err != nil {
 			t.Fatalf("Import failed: %v", err)
 		}
@@ -1370,7 +1348,7 @@ func TestImportFormats(t *testing.T) {
 			"default_type": "work",
 		}
 
-		result, err := js.ImportData(ctx, createMockRequest(args))
+		result, err := js.ImportData(ctx, CreateMockRequest(args))
 		if err != nil {
 			t.Fatalf("Import failed: %v", err)
 		}
@@ -1392,7 +1370,7 @@ func TestImportFormats(t *testing.T) {
 }
 
 func TestGetTaskRecommendations(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create test tasks
@@ -1407,7 +1385,7 @@ func TestGetTaskRecommendations(t *testing.T) {
 			Entries: make([]Entry, 15), // 15 entries
 		},
 		{
-			ID:      "TASK-2", 
+			ID:      "TASK-2",
 			Title:   "Learning task ready for practice",
 			Type:    "learning",
 			Status:  "active",
@@ -1416,19 +1394,19 @@ func TestGetTaskRecommendations(t *testing.T) {
 			Entries: make([]Entry, 6), // 6 entries
 		},
 		{
-			ID:      "TASK-3",
-			Title:   "Urgent high priority task",
-			Type:    "work",
-			Status:  "active",
+			ID:       "TASK-3",
+			Title:    "Urgent high priority task",
+			Type:     "work",
+			Status:   "active",
 			Priority: "urgent",
-			Created: time.Now().AddDate(0, 0, -2),
-			Updated: time.Now(),
-			Entries: make([]Entry, 3),
+			Created:  time.Now().AddDate(0, 0, -2),
+			Updated:  time.Now(),
+			Entries:  make([]Entry, 3),
 		},
 		{
 			ID:      "TASK-4",
 			Title:   "Stale task",
-			Type:    "work", 
+			Type:    "work",
 			Status:  "active",
 			Created: time.Now().AddDate(0, 0, -20),
 			Updated: time.Now().AddDate(0, 0, -10), // Not updated for 10 days
@@ -1462,41 +1440,41 @@ func TestGetTaskRecommendations(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		focusArea   string
-		taskType    string
-		limit       string
-		expectError bool
-		errorMsg    string
+		name               string
+		focusArea          string
+		taskType           string
+		limit              string
+		expectError        bool
+		errorMsg           string
 		minRecommendations int
 	}{
 		{
-			name:        "productivity recommendations",
-			focusArea:   "productivity",
-			limit:       "3",
-			expectError: false,
+			name:               "productivity recommendations",
+			focusArea:          "productivity",
+			limit:              "3",
+			expectError:        false,
 			minRecommendations: 2,
 		},
 		{
-			name:        "learning recommendations",
-			focusArea:   "learning", 
-			taskType:    "learning",
-			limit:       "2",
-			expectError: false,
+			name:               "learning recommendations",
+			focusArea:          "learning",
+			taskType:           "learning",
+			limit:              "2",
+			expectError:        false,
 			minRecommendations: 1,
 		},
 		{
-			name:        "completion recommendations",
-			focusArea:   "completion",
-			limit:       "3",
-			expectError: false,
+			name:               "completion recommendations",
+			focusArea:          "completion",
+			limit:              "3",
+			expectError:        false,
 			minRecommendations: 1,
 		},
 		{
-			name:        "priority recommendations",
-			focusArea:   "priority",
-			limit:       "2",
-			expectError: false,
+			name:               "priority recommendations",
+			focusArea:          "priority",
+			limit:              "2",
+			expectError:        false,
 			minRecommendations: 1,
 		},
 		{
@@ -1506,8 +1484,8 @@ func TestGetTaskRecommendations(t *testing.T) {
 			errorMsg:    "focus_area must be one of: productivity, learning, completion, priority",
 		},
 		{
-			name:        "default parameters",
-			expectError: false,
+			name:               "default parameters",
+			expectError:        false,
 			minRecommendations: 0, // May or may not have recommendations
 		},
 	}
@@ -1515,7 +1493,7 @@ func TestGetTaskRecommendations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			args := map[string]interface{}{}
-			
+
 			if tt.focusArea != "" {
 				args["focus_area"] = tt.focusArea
 			}
@@ -1526,8 +1504,8 @@ func TestGetTaskRecommendations(t *testing.T) {
 				args["limit"] = tt.limit
 			}
 
-			result, err := js.GetTaskRecommendations(ctx, createMockRequest(args))
-			
+			result, err := js.GetTaskRecommendations(ctx, CreateMockRequest(args))
+
 			if tt.expectError {
 				if err != nil {
 					t.Errorf("Expected no error, got: %v", err)
@@ -1601,72 +1579,72 @@ func TestGetTaskRecommendations(t *testing.T) {
 	}
 }
 func TestGetAnalyticsReport(t *testing.T) {
-js, _ := createTestJournalService(t)
-ctx := context.Background()
+	js, _ := CreateTestJournalService(t)
+	ctx := context.Background()
 
-// Create test tasks with varied data
-testTasks := []*Task{
-{
-ID:       "ANALYTICS-1",
-Title:    "Completed work task",
-Type:     "work",
-Status:   "completed",
-Priority: "high",
-Created:  time.Now().AddDate(0, 0, -15),
-Updated:  time.Now().AddDate(0, 0, -5),
-Tags:     []string{"important", "project"},
-Entries:  make([]Entry, 8),
-},
-{
-ID:      "ANALYTICS-2",
-Title:   "Active learning task",
-Type:    "learning",
-Status:  "active",
-Created: time.Now().AddDate(0, 0, -10),
-Updated: time.Now().AddDate(0, 0, -1),
-Tags:    []string{"learning", "skill"},
-Entries: make([]Entry, 5),
-},
-}
+	// Create test tasks with varied data
+	testTasks := []*Task{
+		{
+			ID:       "ANALYTICS-1",
+			Title:    "Completed work task",
+			Type:     "work",
+			Status:   "completed",
+			Priority: "high",
+			Created:  time.Now().AddDate(0, 0, -15),
+			Updated:  time.Now().AddDate(0, 0, -5),
+			Tags:     []string{"important", "project"},
+			Entries:  make([]Entry, 8),
+		},
+		{
+			ID:      "ANALYTICS-2",
+			Title:   "Active learning task",
+			Type:    "learning",
+			Status:  "active",
+			Created: time.Now().AddDate(0, 0, -10),
+			Updated: time.Now().AddDate(0, 0, -1),
+			Tags:    []string{"learning", "skill"},
+			Entries: make([]Entry, 5),
+		},
+	}
 
-// Save test tasks
-for _, task := range testTasks {
-for i := range task.Entries {
-task.Entries[i] = Entry{
-ID:        generateEntryID(),
-Timestamp: task.Created.AddDate(0, 0, i),
-Content:   fmt.Sprintf("Entry %d", i+1),
-Type:      "log",
-}
-}
-if err := js.saveTask(task); err != nil {
-t.Fatalf("Failed to save test task: %v", err)
-}
-}
+	// Save test tasks
+	for _, task := range testTasks {
+		for i := range task.Entries {
+			task.Entries[i] = Entry{
+				ID:        generateEntryID(),
+				Timestamp: task.Created.AddDate(0, 0, i),
+				Content:   fmt.Sprintf("Entry %d", i+1),
+				Type:      "log",
+			}
+		}
+		if err := js.saveTask(task); err != nil {
+			t.Fatalf("Failed to save test task: %v", err)
+		}
+	}
 
-result, err := js.GetAnalyticsReport(ctx, createMockRequest(map[string]interface{}{
-"report_type": "overview",
-"time_period": "month",
-}))
+	result, err := js.GetAnalyticsReport(ctx, CreateMockRequest(map[string]interface{}{
+		"report_type": "overview",
+		"time_period": "month",
+	}))
 
-if err != nil {
-t.Fatalf("Unexpected error: %v", err)
-}
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 
-if result.IsError {
-t.Fatal("Unexpected error result")
-}
+	if result.IsError {
+		t.Fatal("Unexpected error result")
+	}
 
-content := result.Content[0].(mcp.TextContent)
-var report AnalyticsReport
-if err := json.Unmarshal([]byte(content.Text), &report); err != nil {
-t.Fatalf("Failed to parse analytics report: %v", err)
-}
+	content := result.Content[0].(mcp.TextContent)
+	var report AnalyticsReport
+	if err := json.Unmarshal([]byte(content.Text), &report); err != nil {
+		t.Fatalf("Failed to parse analytics report: %v", err)
+	}
 
-if report.TaskMetrics.TotalTasks == 0 {
-t.Error("Expected tasks in report")
-}
-if report.Summary == "" {
-t.Error("Expected summary")
-}
+	if report.TaskMetrics.TotalTasks == 0 {
+		t.Error("Expected tasks in report")
+	}
+	if report.Summary == "" {
+		t.Error("Expected summary")
+	}
 }

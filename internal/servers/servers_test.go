@@ -1,4 +1,4 @@
-package main
+package servers
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestGitHubSyncWithGitHub(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -48,7 +48,7 @@ func TestGitHubSyncWithGitHub(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := createMockRequest(tt.args)
+			request := CreateMockRequest(tt.args)
 			result, err := js.SyncWithGitHub(ctx, request)
 
 			if tt.expectError {
@@ -75,7 +75,7 @@ func TestGitHubSyncWithGitHub(t *testing.T) {
 }
 
 func TestCreateDataBackup(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	// Create some test data first
@@ -106,7 +106,7 @@ func TestCreateDataBackup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := createMockRequest(tt.args)
+			request := CreateMockRequest(tt.args)
 			result, err := js.CreateDataBackup(ctx, request)
 
 			if tt.expectError {
@@ -145,10 +145,10 @@ func TestCreateDataBackup(t *testing.T) {
 }
 
 func TestGetConfiguration(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
-	request := createMockRequest(map[string]interface{}{})
+	request := CreateMockRequest(map[string]interface{}{})
 	result, err := js.GetConfiguration(ctx, request)
 
 	if err != nil {
@@ -179,7 +179,7 @@ func TestGetConfiguration(t *testing.T) {
 }
 
 func TestUpdateConfiguration(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -236,7 +236,7 @@ func TestUpdateConfiguration(t *testing.T) {
 				args["config"] = tt.configJSON
 			}
 
-			request := createMockRequest(args)
+			request := CreateMockRequest(args)
 			result, err := js.UpdateConfiguration(ctx, request)
 
 			if tt.expectError {
@@ -258,7 +258,7 @@ func TestUpdateConfiguration(t *testing.T) {
 }
 
 func TestPullIssueUpdates(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -296,7 +296,7 @@ func TestPullIssueUpdates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := createMockRequest(tt.args)
+			request := CreateMockRequest(tt.args)
 			result, err := js.PullIssueUpdates(ctx, request)
 
 			if tt.expectError {
@@ -319,7 +319,7 @@ func TestPullIssueUpdates(t *testing.T) {
 }
 
 func TestCreateTaskFromGitHubIssue(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -367,7 +367,7 @@ func TestCreateTaskFromGitHubIssue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := createMockRequest(tt.args)
+			request := CreateMockRequest(tt.args)
 			result, err := js.CreateTaskFromGitHubIssue(ctx, request)
 
 			if tt.expectError {
@@ -389,7 +389,7 @@ func TestCreateTaskFromGitHubIssue(t *testing.T) {
 }
 
 func TestMigrateData(t *testing.T) {
-	js, _ := createTestJournalService(t)
+	js, _ := CreateTestJournalService(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -417,7 +417,7 @@ func TestMigrateData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := createMockRequest(tt.args)
+			request := CreateMockRequest(tt.args)
 			result, err := js.MigrateData(ctx, request)
 
 			if err != nil {
@@ -454,7 +454,7 @@ func createTestTask(t *testing.T, js *JournalService, id, title, taskType string
 		"title": title,
 		"type":  taskType,
 	}
-	request := createMockRequest(args)
+	request := CreateMockRequest(args)
 	_, err := js.CreateTask(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)

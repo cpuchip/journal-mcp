@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cpuchip/journal-mcp/internal/servers"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -17,7 +18,7 @@ func main() {
 	s := server.NewMCPServer("journal-mcp", "1.0.0", server.WithToolCapabilities(true))
 
 	// Initialize the journal service
-	journalService := NewJournalService()
+	journalService := servers.NewJournalService()
 
 	// Register tools
 	registerTools(s, journalService)
@@ -40,21 +41,21 @@ func main() {
 	}
 }
 
-func startWebMode(journalService *JournalService) {
-	webServer := NewWebServer(journalService, 8080)
-	
+func startWebMode(journalService *servers.JournalService) {
+	webServer := servers.NewWebServer(journalService, 8080)
+
 	log.Println("Starting Journal MCP in web-only mode on port 8080")
 	log.Println("Access the API at: http://localhost:8080/api")
 	log.Println("API documentation at: http://localhost:8080/api/docs")
-	
+
 	if err := webServer.Start(); err != nil {
 		log.Fatal("Web server failed:", err)
 	}
 }
 
-func startDualMode(mcpServer *server.MCPServer, journalService *JournalService) {
+func startDualMode(mcpServer *server.MCPServer, journalService *servers.JournalService) {
 	// Start web server in a goroutine
-	webServer := NewWebServer(journalService, 8080)
+	webServer := servers.NewWebServer(journalService, 8080)
 	go func() {
 		log.Println("Starting web server on port 8080")
 		if err := webServer.Start(); err != nil {
@@ -70,15 +71,15 @@ func startDualMode(mcpServer *server.MCPServer, journalService *JournalService) 
 	go func() {
 		<-c
 		log.Println("Shutting down servers...")
-		
+
 		// Shutdown web server
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		
+
 		if err := webServer.Stop(shutdownCtx); err != nil {
 			log.Printf("Web server shutdown error: %v", err)
 		}
-		
+
 		cancel()
 	}()
 
@@ -95,7 +96,7 @@ func startDualMode(mcpServer *server.MCPServer, journalService *JournalService) 
 	log.Println("Servers stopped")
 }
 
-func registerTools(s *server.MCPServer, js *JournalService) {
+func registerTools(s *server.MCPServer, js *servers.JournalService) {
 	// Task Management Tools
 	s.AddTool(mcp.NewTool("create_task",
 		mcp.WithDescription("Create a new task with optional issue linking"),

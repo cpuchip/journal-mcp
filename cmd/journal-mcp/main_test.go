@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cpuchip/journal-mcp/internal/servers"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -11,7 +12,7 @@ import (
 func TestToolRegistration(t *testing.T) {
 	// Create a test server
 	s := server.NewMCPServer("journal-mcp", "1.0.0", server.WithToolCapabilities(true))
-	js := NewJournalService()
+	js := servers.NewJournalService()
 
 	// Register tools
 	registerTools(s, js)
@@ -139,7 +140,7 @@ func TestToolSchemas(t *testing.T) {
 
 func TestMCPToolFunctionSignatures(t *testing.T) {
 	// Test that all tool functions have the correct MCP signature
-	js := NewJournalService()
+	js := servers.NewJournalService()
 
 	// Test that functions exist and can be called without panicking
 	toolNames := []string{
@@ -169,7 +170,7 @@ func TestMCPCompliance(t *testing.T) {
 	}
 
 	// Test that we can create a journal service
-	js := NewJournalService()
+	js := servers.NewJournalService()
 	if js == nil {
 		t.Fatal("Failed to create journal service")
 	}
@@ -186,7 +187,7 @@ func TestMCPCompliance(t *testing.T) {
 
 func TestMCPResultTypes(t *testing.T) {
 	// Test that all tools return proper MCP result types
-	js, _ := createTestJournalService(t)
+	js, _ := servers.CreateTestJournalService(t)
 
 	// Test successful result
 	successResult := mcp.NewToolResultText("Success message")
@@ -207,7 +208,7 @@ func TestMCPResultTypes(t *testing.T) {
 	}
 
 	// Test that our functions return the right types
-	req := createMockRequest(map[string]interface{}{
+	req := servers.CreateMockRequest(map[string]interface{}{
 		"id":    "TYPE-TEST",
 		"title": "Type test task",
 		"type":  "work",
@@ -292,7 +293,7 @@ func TestRequestParameterParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := createMockRequest(tt.args)
+			req := servers.CreateMockRequest(tt.args)
 			err := tt.testFunc(req)
 			if err != nil {
 				t.Errorf("Test function failed: %v", err)

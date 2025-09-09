@@ -89,7 +89,7 @@ jobs:
         else
           BINARY_NAME="journal-mcp-${{ matrix.goos }}-${{ matrix.goarch }}"
         fi
-        go build -ldflags="-s -w" -o "$BINARY_NAME" .
+        go build -ldflags="-s -w" -o "$BINARY_NAME" ./cmd/journal-mcp
         
         # Create a directory for the artifacts
         mkdir -p dist

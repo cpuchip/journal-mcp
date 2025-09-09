@@ -1,4 +1,4 @@
-package main
+package servers
 
 import (
 	"archive/zip"
@@ -24,19 +24,19 @@ type Configuration struct {
 		AutoSync     bool     `json:"auto_sync" yaml:"auto_sync"`
 		SyncInterval int      `json:"sync_interval_minutes" yaml:"sync_interval_minutes"`
 	} `json:"github" yaml:"github"`
-	
+
 	Web struct {
 		Enabled bool `json:"enabled" yaml:"enabled"`
 		Port    int  `json:"port" yaml:"port"`
 	} `json:"web" yaml:"web"`
-	
+
 	Backup struct {
 		AutoBackup     bool   `json:"auto_backup" yaml:"auto_backup"`
 		BackupInterval int    `json:"backup_interval_hours" yaml:"backup_interval_hours"`
 		BackupLocation string `json:"backup_location,omitempty" yaml:"backup_location,omitempty"`
 		MaxBackups     int    `json:"max_backups" yaml:"max_backups"`
 	} `json:"backup" yaml:"backup"`
-	
+
 	General struct {
 		DefaultTaskType string `json:"default_task_type" yaml:"default_task_type"`
 		TimeZone        string `json:"timezone" yaml:"timezone"`
@@ -46,11 +46,11 @@ type Configuration struct {
 
 // BackupResult represents the result of a backup operation
 type BackupResult struct {
-	BackupPath   string    `json:"backup_path"`
-	Size         int64     `json:"size_bytes"`
-	FilesBackup  int       `json:"files_backup"`
-	CreatedAt    time.Time `json:"created_at"`
-	Summary      string    `json:"summary"`
+	BackupPath  string    `json:"backup_path"`
+	Size        int64     `json:"size_bytes"`
+	FilesBackup int       `json:"files_backup"`
+	CreatedAt   time.Time `json:"created_at"`
+	Summary     string    `json:"summary"`
 }
 
 // RestoreResult represents the result of a restore operation
@@ -71,7 +71,7 @@ func (js *JournalService) CreateDataBackup(ctx context.Context, request mcp.Call
 	if backupPath == "" {
 		// Generate default backup path
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		backupPath = filepath.Join(js.dataDir, "backups", fmt.Sprintf("journal-backup-%s.zip", timestamp))
+		backupPath = filepath.Join(js.DataDir, "backups", fmt.Sprintf("journal-backup-%s.zip", timestamp))
 	}
 
 	// Ensure backup directory exists
@@ -94,32 +94,32 @@ func (js *JournalService) CreateDataBackup(ctx context.Context, request mcp.Call
 	var totalSize int64
 
 	// Backup tasks
-	tasksDir := filepath.Join(js.dataDir, "tasks")
+	tasksDir := filepath.Join(js.DataDir, "tasks")
 	if err := js.addDirectoryToZip(zipWriter, tasksDir, "tasks", &filesBackup, &totalSize); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup tasks: %v", err)), nil
 	}
 
 	// Backup daily logs
-	dailyDir := filepath.Join(js.dataDir, "daily")
+	dailyDir := filepath.Join(js.DataDir, "daily")
 	if err := js.addDirectoryToZip(zipWriter, dailyDir, "daily", &filesBackup, &totalSize); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup daily logs: %v", err)), nil
 	}
 
 	// Backup weekly logs
-	weeklyDir := filepath.Join(js.dataDir, "weekly")
+	weeklyDir := filepath.Join(js.DataDir, "weekly")
 	if err := js.addDirectoryToZip(zipWriter, weeklyDir, "weekly", &filesBackup, &totalSize); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup weekly logs: %v", err)), nil
 	}
 
 	// Backup one-on-ones
-	oneOnOneDir := filepath.Join(js.dataDir, "one-on-ones")
+	oneOnOneDir := filepath.Join(js.DataDir, "one-on-ones")
 	if err := js.addDirectoryToZip(zipWriter, oneOnOneDir, "one-on-ones", &filesBackup, &totalSize); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to backup one-on-ones: %v", err)), nil
 	}
 
 	// Backup configuration if requested
 	if includeConfig {
-		configPath := filepath.Join(js.dataDir, "config.yaml")
+		configPath := filepath.Join(js.DataDir, "config.yaml")
 		if _, err := os.Stat(configPath); err == nil {
 			if err := js.addFileToZip(zipWriter, configPath, "config.yaml", &totalSize); err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to backup config: %v", err)), nil
@@ -130,12 +130,12 @@ func (js *JournalService) CreateDataBackup(ctx context.Context, request mcp.Call
 
 	// Add backup metadata
 	metadata := map[string]interface{}{
-		"created_at":      time.Now(),
-		"version":         "1.0.0",
-		"source_dir":      js.dataDir,
-		"files_count":     filesBackup,
-		"include_config":  includeConfig,
-		"compression":     compressionLevel,
+		"created_at":     time.Now(),
+		"version":        "1.0.0",
+		"source_dir":     js.DataDir,
+		"files_count":    filesBackup,
+		"include_config": includeConfig,
+		"compression":    compressionLevel,
 	}
 
 	metadataJSON, _ := json.MarshalIndent(metadata, "", "  ")
@@ -194,11 +194,11 @@ func (js *JournalService) RestoreDataBackup(ctx context.Context, request mcp.Cal
 	// Create restore directory if needed
 	if !overwriteExisting {
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		restoreDir := filepath.Join(js.dataDir, fmt.Sprintf("restore-%s", timestamp))
+		restoreDir := filepath.Join(js.DataDir, fmt.Sprintf("restore-%s", timestamp))
 		if err := os.MkdirAll(restoreDir, 0755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create restore directory: %v", err)), nil
 		}
-		js.dataDir = restoreDir
+		js.DataDir = restoreDir
 	}
 
 	// Extract files
@@ -228,7 +228,7 @@ func (js *JournalService) RestoreDataBackup(ctx context.Context, request mcp.Cal
 		}
 	}
 
-	restoreResult.Summary = fmt.Sprintf("Successfully restored %d files (%d tasks) from backup", 
+	restoreResult.Summary = fmt.Sprintf("Successfully restored %d files (%d tasks) from backup",
 		restoreResult.FilesRestored, restoreResult.TasksRestored)
 
 	resultJSON, _ := json.Marshal(restoreResult)
@@ -237,10 +237,10 @@ func (js *JournalService) RestoreDataBackup(ctx context.Context, request mcp.Cal
 
 // GetConfiguration retrieves the current configuration
 func (js *JournalService) GetConfiguration(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	configPath := filepath.Join(js.dataDir, "config.yaml")
-	
+	configPath := filepath.Join(js.DataDir, "config.yaml")
+
 	var config Configuration
-	
+
 	// Load existing config or use defaults
 	if data, err := os.ReadFile(configPath); err == nil {
 		if err := yaml.Unmarshal(data, &config); err != nil {
@@ -283,7 +283,7 @@ func (js *JournalService) UpdateConfiguration(ctx context.Context, request mcp.C
 	}
 
 	// Save configuration
-	configPath := filepath.Join(js.dataDir, "config.yaml")
+	configPath := filepath.Join(js.DataDir, "config.yaml")
 	configYAML, err := yaml.Marshal(config)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal config: %v", err)), nil
@@ -310,12 +310,12 @@ func (js *JournalService) MigrateData(ctx context.Context, request mcp.CallToolR
 
 	// For now, this is a placeholder for future database migrations
 	result := map[string]interface{}{
-		"status":           "success",
-		"migration_version": migrationVersion,
-		"dry_run":          dryRun,
-		"message":          "Data migration framework ready for future use",
+		"status":             "success",
+		"migration_version":  migrationVersion,
+		"dry_run":            dryRun,
+		"message":            "Data migration framework ready for future use",
 		"migrations_applied": []string{},
-		"summary":          "No migrations needed for current JSON-based storage",
+		"summary":            "No migrations needed for current JSON-based storage",
 	}
 
 	resultJSON, _ := json.Marshal(result)
@@ -378,7 +378,7 @@ func (js *JournalService) extractFileFromZip(file *zip.File, result *RestoreResu
 	defer reader.Close()
 
 	// Create target directory
-	targetPath := filepath.Join(js.dataDir, file.Name)
+	targetPath := filepath.Join(js.DataDir, file.Name)
 	targetDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err
